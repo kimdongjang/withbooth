@@ -1552,7 +1552,11 @@ input, select { background: white; color: #17243b; min-height: 36px; }
 .creator-field-controls{display:flex;align-items:end;gap:8px;flex-wrap:wrap}
 .creator-field-controls>label{flex:1 1 160px;min-width:0}
 .creator-field select,.creator-field input{width:100%;min-height:40px;min-width:0;padding:8px 10px;border:1px solid #cbd5e1;border-radius:8px;background:#fff;font:inherit}
-.creator-field>button{justify-self:start}
+.creator-field-controls>.revenue-status{align-self:center;justify-self:start}
+#root .creator-field-controls>button[aria-pressed=true]{border-color:#2563eb;background:#eff6ff;color:#1d4ed8}
+.creator-field-direct{display:flex;align-items:flex-end;gap:8px;flex-wrap:wrap;min-width:0;padding:12px;border:1px solid #e2e8f0;border-radius:8px;background:#f8fafc}
+.creator-field-direct>label{flex:1 1 200px;min-width:0}
+.creator-field-direct>button{flex:0 0 auto;white-space:nowrap}
 
 .event-product-number-table .product-order-cell{justify-content:center}
 
@@ -2238,3 +2242,35 @@ body:has(.api-read-indicator) .loading-state{visibility:hidden}
 .home-stock-events li>div:first-child{display:flex;justify-content:space-between;gap:8px;flex-wrap:wrap}
 .home-stock-metrics.is-three{grid-template-columns:repeat(3,minmax(0,1fr));margin-top:20px}
 .home-dashboard>.home-own-settlements{grid-column:1/-1}
+
+.sale-number-badge{position:absolute;top:6px;left:6px;z-index:1;min-width:34px;height:34px;padding:0 8px;display:inline-flex;align-items:center;justify-content:center;border-radius:9px;background:#0f172a;color:#fff;font-size:20px;font-weight:800;font-variant-numeric:tabular-nums;line-height:1}
+.sort-mode-toggle{float:right;min-height:40px;padding:0 6px;display:inline-flex;align-items:center;gap:8px;color:#475569;font-size:13px;font-weight:700;cursor:pointer}
+.sort-mode-toggle input{width:20px;height:20px;margin:0;accent-color:#2563eb;cursor:pointer}
+.sort-card{position:relative;min-width:0;display:flex}.sort-card>.product-card{flex:1;pointer-events:none}
+.sort-card-handle{position:absolute;inset:0;border:2px dashed #94a3b8;border-radius:12px;background:transparent;cursor:grab;touch-action:none;user-select:none}
+.sort-card-handle[aria-pressed=true]{cursor:grabbing;border-color:#2563eb;background:rgba(37,99,235,.1)}
+.sort-card[data-dragging]{opacity:.4}
+.sort-ghost{position:fixed;z-index:1000;pointer-events:none;opacity:.7;display:flex;filter:drop-shadow(0 8px 16px rgba(15,23,42,.35))}.sort-ghost>*{flex:1;pointer-events:none}
+.sort-card[data-drop-position=before]::before,.sort-card[data-drop-position=after]::after{content:"";position:absolute;top:0;bottom:0;width:4px;border-radius:2px;background:#2563eb;z-index:2}
+.sort-card[data-drop-position=before]::before{left:0}.sort-card[data-drop-position=after]::after{right:0}
+
+.sales-tabs-row{display:flex;align-items:stretch;gap:12px;border-bottom:1px solid #e2e8f0}
+.sales-tabs-row .purchase-tabs{flex:1;min-width:0;border-bottom:0}
+.sales-tabs-row .sort-mode-toggle{float:none;margin-left:auto;min-height:44px;flex-shrink:0}
+.inventory-page .management-details>.creator-field .creator-field-controls{display:flex;flex-wrap:wrap;align-items:center;gap:8px}
+.inventory-page .management-details>.creator-field .creator-field-controls>label{flex:1 1 220px;grid-column:auto}
+#root .inventory-page .management-details>.creator-field :is(.creator-field-controls,.creator-field-direct)>button{width:auto;min-height:42px;padding:0 14px;white-space:nowrap}
+@media(max-width:600px){
+ #root .creator-field :is(.creator-field-controls,.creator-field-direct)>label{flex-basis:100%}
+ #root .creator-field :is(.creator-field-controls,.creator-field-direct)>button{flex:1 1 0}
+}
+.inventory-page .management-details>.creator-field legend{font-size:13px;font-weight:700;color:#0f172a}
+.inventory-page .management-details>fieldset>legend{font-size:13px;font-weight:700;color:#0f172a}
+.inventory-page .management-details .management-fields{gap:14px 16px}
+.inventory-page .management-details .product-name-field{grid-column:auto}
+@media(min-width:600px){.inventory-page .management-details .management-fields{grid-template-columns:repeat(2,minmax(0,1fr))}}
+.inventory-page .management-details .management-field>span,.inventory-page .management-details .management-field>label{font-size:12px;font-weight:600;color:#475569}
+.inventory-page .management-details .management-field :is(input,select){min-height:42px;padding:9px 12px;border:1px solid #cbd5e1;border-radius:8px;background:#fff;color:#0f172a;transition:border-color .15s,box-shadow .15s}
+.inventory-page .management-details .management-field :is(input,select):hover:not(:disabled){border-color:#94a3b8}
+.inventory-page .management-details .management-field :is(input,select):focus{outline:0;border-color:#2563eb;box-shadow:0 0 0 3px rgba(37,99,235,.18)}
+.inventory-page .management-details .management-field input::placeholder{color:#94a3b8}

@@ -6,7 +6,10 @@ import { readFile } from 'node:fs/promises';
 async function harness(){
  const state=[],refs=[],dependencies=[],effects=[],frames=new Map(),listeners=new Map(),calls=[];let i,r,e,frameId=0,hit='a',fail=false;
  const container={scrollTop:0,getBoundingClientRect:()=>({top:0,bottom:500})};
- const button={closest:selector=>selector==='table'?{contains:row=>row.inside!==false}:container,focus(){},setPointerCapture(){},hasPointerCapture:()=>false};
+ let grid=false;
+ const cell=(productRow,left)=>({dataset:{productRow},getBoundingClientRect:()=>({left,right:left+50,top:100,bottom:150})});
+ const table={contains:row=>row.inside!==false,matches:()=>grid,getBoundingClientRect:()=>({left:0,right:400,top:0,bottom:400}),querySelectorAll:()=>[cell('b',100),cell('c',300)]};
+ const button={closest:selector=>selector.startsWith('table')?table:container,getBoundingClientRect:()=>({left:90,top:190,width:40,height:40}),focus(){},setPointerCapture(){},hasPointerCapture:()=>false};
  const context=vm.createContext({window:{addEventListener:(key,fn)=>listeners.set(key,fn),removeEventListener:key=>listeners.delete(key)},document:{elementFromPoint:()=>hit===null?null:{closest:()=>({dataset:{productRow:hit},inside:hit!=='foreign'})},querySelector:()=>({scrollIntoView(){}})},requestAnimationFrame:fn=>{frames.set(++frameId,fn);return frameId;},cancelAnimationFrame:id=>frames.delete(id)});
  const mod=new vm.SourceTextModule(await readFile(new URL('../src/hooks/useProductReorder.js',import.meta.url),'utf8'),{context});
  await mod.link(()=>new vm.SyntheticModule(['useState','useRef','useEffect'],function(){
@@ -18,7 +21,7 @@ async function harness(){
  const render=()=>{i=r=e=0;const result=mod.namespace.useProductReorder(props);while(effects.length)effects.shift()();return result;};render();
  const pointer=(overrides={})=>({button:0,isPrimary:true,pointerId:1,clientX:100,clientY:200,currentTarget:button,preventDefault(){},...overrides});
  const key=value=>({key:value,preventDefault(){}});
- return {props,calls,render,pointer,key,container,frames,listeners,hit:value=>{hit=value;},fail:value=>{fail=value;},tick:()=>{const next=frames.entries().next().value;if(next){frames.delete(next[0]);next[1]();}}};
+ return {props,calls,render,pointer,key,container,frames,listeners,grid:value=>{grid=value;},hit:value=>{hit=value;},fail:value=>{fail=value;},tick:()=>{const next=frames.entries().next().value;if(next){frames.delete(next[0]);next[1]();}}};
 }
 
 test('grab handle saves once on drop using immutable baseline order; pointer cancellation and outside drops never save',async()=>{
@@ -30,6 +33,13 @@ test('grab handle saves once on drop using immutable baseline order; pointer can
  await h.render().handleProps(h.props.products[0]).onPointerUp(h.pointer());assert.equal(h.calls.length,1);assert.equal(h.frames.size,0);
  h.hit('b');h.render().handleProps(h.props.products[0]).onPointerDown(h.pointer());h.render().handleProps(h.props.products[0]).onPointerCancel();assert.equal(h.render().state,null);
  h.render().handleProps(h.props.products[0]).onPointerDown(h.pointer());h.hit('foreign');await h.render().handleProps(h.props.products[0]).onPointerUp(h.pointer());assert.equal(h.calls.length,1);
+});
+
+test('card grid drops in a gap use the nearest card; tables and drops outside the grid never save',async()=>{
+ const h=await harness(),a=h.props.products[0],drop=async overrides=>{h.render().handleProps(a).onPointerDown(h.pointer());h.hit(null);h.render().handleProps(a).onPointerMove(h.pointer(overrides));await h.render().handleProps(a).onPointerUp(h.pointer(overrides));};
+ await drop({clientX:320,clientY:170});assert.equal(h.calls.length,0);
+ h.grid(true);await drop({clientX:900,clientY:170});assert.equal(h.calls.length,0);
+ await drop({clientX:320,clientY:170});assert.equal(h.calls.length,1);assert.equal(h.calls[0].saleNumber,3);
 });
 
 test('touch pointer edge scrolling, keyboard move/drop, Escape and stale-list/read-only cancellation preserve scope',async()=>{

@@ -87,12 +87,22 @@ test('event registration atomically creates inventory, event price and allocatio
   } finally { await db.close(); }
 });
 
+test('event registration keeps an empty goods type instead of replacing it with the product name', async () => {
+  const { db, invoke } = await fixture();
+  try {
+    const event = (await invoke('createProject', null, { name: '굿즈 종류 행사' })).body.project.id;
+    const created = await invoke('createEventProduct', null, { projectId: event, product: { id: 'blank-goods-type', name: '이름만 있는 상품', goodsType: '', vtuberName: '', creatorName: '', genre: '', price: 1000, stockQty: 1 } });
+    assert.equal(created.status, 200);
+    assert.equal(created.body.products.find(row => row.name === '이름만 있는 상품').goodsType, '');
+  } finally { await db.close(); }
+});
+
 test('event registration validates ownership, archive, integer bounds and rolls back failures after inventory creation', async () => {
   const { db, invoke } = await fixture();
   try {
     const event = (await invoke('createProject', null, { name: '검증 행사' })).body.project.id;
     const product = { id: 'validation-product', name: '상품', goodsType: '키링', vtuberName: '', creatorName: '', genre: '', price: 1000, stockQty: 3 };
-    for (const patch of [{ price: -1 }, { price: 1.5 }, { price: 2147483648 }, { stockQty: -1 }, { stockQty: 0.5 }, { stockQty: 2147483648 }, { name: '' }, { goodsType: '' }, { genre: 'x'.repeat(201) }]) {
+    for (const patch of [{ price: -1 }, { price: 1.5 }, { price: 2147483648 }, { stockQty: -1 }, { stockQty: 0.5 }, { stockQty: 2147483648 }, { name: '' }, { genre: 'x'.repeat(201) }]) {
       assert.equal((await invoke('createEventProduct', null, { projectId: event, product: { ...product, ...patch } })).status, 400);
     }
     assert.equal((await invoke('createEventProduct', null, { projectId: event, product }, 'b')).status, 404);

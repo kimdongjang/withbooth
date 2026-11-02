@@ -32,7 +32,7 @@ function normalizeProduct(product = {}) {
     id: String(product.id || productCode),
     name: displayName(product),
     productCode: String(productCode),
-    goodsType: product.goodsType || product.name || '새 굿즈',
+    goodsType: product.goodsType == null ? (product.name || '새 굿즈') : String(product.goodsType),
     vtuberName: product.vtuberName || '',
     creatorName: product.creatorName || '',
     genre: product.genre == null ? null : product.genre.trim(),
@@ -297,7 +297,7 @@ function registrationDate(value) {
 }
 
 async function syncCommonProduct(adminId, inventoryId, product) {
-  await sql`UPDATE pos_products p SET name=${product.name},goods_type=${product.goodsType || product.name},vtuber_name=${product.vtuberName || ''},creator_name=${product.creatorName || ''},genre=${product.genre || ''},image_url=${product.imageUrl || null},updated_at=NOW()
+  await sql`UPDATE pos_products p SET name=${product.name},goods_type=${product.goodsType ?? product.name},vtuber_name=${product.vtuberName || ''},creator_name=${product.creatorName || ''},genre=${product.genre || ''},image_url=${product.imageUrl || null},updated_at=NOW()
     FROM pos_inventory_links l WHERE l.admin_id=${adminId} AND l.inventory_id=${inventoryId} AND p.project_id=l.project_id AND p.id=l.product_id`;
   await sql`UPDATE pos_projects SET updated_at=NOW() WHERE admin_id=${adminId} AND id IN (SELECT project_id FROM pos_inventory_links WHERE admin_id=${adminId} AND inventory_id=${inventoryId})`;
 }
@@ -347,7 +347,7 @@ async function inventoryAction(adminId, action, payload) {
       product = { ...row.product, imageUrl: payload.imageUrl || null };
     } else {
       const input = payload.product || {};
-      for (const key of ['name','goodsType','vtuberName','creatorName','genre']) if (typeof input[key] !== 'string' || input[key].length > 200 || (['name','goodsType'].includes(key) && !input[key].trim())) throw Object.assign(new Error('상품 이름과 굿즈 종류는 필수이며 각 항목은200자 이내여야 합니다.'), { status: 400 });
+      for (const key of ['name','goodsType','vtuberName','creatorName','genre']) if (typeof input[key] !== 'string' || input[key].length > 200 || (key === 'name' && !input[key].trim())) throw Object.assign(new Error('상품 이름은 필수이며 각 항목은 200자 이내여야 합니다.'), { status: 400 });
       const price = inventoryInteger(input.price);
       product = { ...row.product, ...Object.fromEntries(['name','goodsType','vtuberName','creatorName','genre'].map(key => [key,input[key].trim()])) };
       await sql`UPDATE pos_products SET price=${price} WHERE project_id=${projectId} AND id=${productId}`;
@@ -366,7 +366,7 @@ async function inventoryAction(adminId, action, payload) {
     if (revision && payload.dataRevision !== revision) throw Object.assign(new Error('행사 데이터가 분리되었습니다. 새로고침 후 다시 진행해주세요.'), { status: 409 });
     if (typeof input.id !== 'string' || !input.id || input.id.length > 200) throw Object.assign(new Error('잘못된 등록 요청 ID입니다.'), { status: 400 });
     for (const key of ['name', 'goodsType', 'vtuberName', 'creatorName', 'genre']) {
-      if (typeof input[key] !== 'string' || input[key].length > 200 || (['name', 'goodsType'].includes(key) && !input[key].trim())) throw Object.assign(new Error('상품 이름과 굿즈 종류는 필수이며 각 항목은 200자 이내로 입력해주세요.'), { status: 400 });
+      if (typeof input[key] !== 'string' || input[key].length > 200 || (key === 'name' && !input[key].trim())) throw Object.assign(new Error('상품 이름은 필수이며 각 항목은 200자 이내로 입력해주세요.'), { status: 400 });
     }
     const stock = inventoryInteger(input.stockQty);
     const price = inventoryInteger(input.price);
@@ -406,7 +406,7 @@ async function inventoryAction(adminId, action, payload) {
     if (imageUrl != null && imageUrl !== old?.product?.imageUrl) {
       if (!validImageUrl(imageUrl, `/inventory/${encodeURIComponent(adminId)}/${encodeURIComponent(id)}/`)) throw Object.assign(new Error('올바른 상품 이미지 URL이 아닙니다.'), { status: 400 });
     }
-    const product = { genre, createdAt: Object.hasOwn(payload, 'registrationDate') ? registrationDate(payload.registrationDate) : old ? old.product.createdAt || null : new Date().toISOString(), imageUrl, name: input.name.trim(), price, cost: inventoryInteger(input.cost ?? old?.product?.cost ?? 0), goodsType: String(input.goodsType || input.name).slice(0,200), creatorName: String(input.creatorName || '').slice(0,200), vtuberName: String(input.vtuberName || '').slice(0,200) };
+    const product = { genre, createdAt: Object.hasOwn(payload, 'registrationDate') ? registrationDate(payload.registrationDate) : old ? old.product.createdAt || null : new Date().toISOString(), imageUrl, name: input.name.trim(), price, cost: inventoryInteger(input.cost ?? old?.product?.cost ?? 0), goodsType: input.goodsType == null ? input.name.trim().slice(0,200) : String(input.goodsType).slice(0,200), creatorName: String(input.creatorName || '').slice(0,200), vtuberName: String(input.vtuberName || '').slice(0,200) };
     // Initialize old totals/numbers before applying a stock delta.
     await inventoryState(adminId);
     if (old) {
@@ -637,7 +637,7 @@ async function readState(adminId, projectId) {
     settlementClosedAt: (await sql`SELECT closed_at FROM pos_event_settlements WHERE admin_id=${adminId} AND project_id=${projectId}`).rows[0]?.closed_at || null,
     archivedAt: (await sql`SELECT archived_at FROM pos_projects WHERE id = ${projectId}`).rows[0]?.archived_at || null,
     dataRevision: await dataRevision(projectId),
-    products: products.rows.map((product) => ({ id: product.id, saleNumber: product.sale_number == null ? null : Number(product.sale_number), inventoryId: product.inventory_id || null, productNumber: product.product_number || null, inventoryVersion: product.inventory_version ?? null, genre: product.genre || '', productCode: product.product_code || product.id, goodsType: product.goods_type || product.name, vtuberName: product.vtuber_name || '', creatorName: product.creator_name || '', stockQty: Number(product.stock_qty ?? product.stock ?? 0), initialStockQty: Number(product.initial_stock_qty ?? product.stock_qty ?? product.stock ?? 0), size: product.size || null, imageUrl: product.image_url || null, price: Number(product.price) || 0, setCreatorName: product.set_creator_name || null, setGroupName: product.set_group_name || null, setPrice: product.set_price == null ? null : Number(product.set_price) || 0, setDescription: product.set_description || null, isActive: product.is_active !== false, createdAt: new Date(product.created_at).toISOString(), updatedAt: new Date(product.updated_at).toISOString(), name: product.name, stock: Number(product.stock_qty ?? product.stock ?? 0) })),
+    products: products.rows.map((product) => ({ id: product.id, saleNumber: product.sale_number == null ? null : Number(product.sale_number), inventoryId: product.inventory_id || null, productNumber: product.product_number || null, inventoryVersion: product.inventory_version ?? null, genre: product.genre || '', productCode: product.product_code || product.id, goodsType: product.goods_type ?? product.name, vtuberName: product.vtuber_name || '', creatorName: product.creator_name || '', stockQty: Number(product.stock_qty ?? product.stock ?? 0), initialStockQty: Number(product.initial_stock_qty ?? product.stock_qty ?? product.stock ?? 0), size: product.size || null, imageUrl: product.image_url || null, price: Number(product.price) || 0, setCreatorName: product.set_creator_name || null, setGroupName: product.set_group_name || null, setPrice: product.set_price == null ? null : Number(product.set_price) || 0, setDescription: product.set_description || null, isActive: product.is_active !== false, createdAt: new Date(product.created_at).toISOString(), updatedAt: new Date(product.updated_at).toISOString(), name: product.name, stock: Number(product.stock_qty ?? product.stock ?? 0) })),
     bundles: bundles.rows.map((bundle) => ({ ...bundle, items: bundle.items || [] })),
     sales: sales.rows.map((sale) => ({ ...sale, time: new Date(sale.time).toISOString(), lines: sale.lines || [] })),
   };

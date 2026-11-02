@@ -32,7 +32,7 @@ export default function ProductEditForm({ product, products, persistProducts, di
   return <form id={formId} onSubmit={submit} className="management-details">
     <fieldset disabled={disabled || busy}><legend>{onSave ? '공통 상품 정보' : '기본 정보'}</legend><div className="management-fields">
       <label className="management-field product-name-field"><span>상품 이름</span><Input required value={draft.name} disabled={disabled || busy} onChange={value => change('name', value)} /></label>
-      {[['vtuberName', '캐릭터'], ['goodsType', '굿즈 종류'], ['creatorName', '제작자'], ['genre', '작품/시리즈']].map(([field, label]) => field==='creatorName'&&creatorSlot ? <div key={field}>{creatorSlot}</div> : <ProductValueInput key={field} label={label} field={field} products={products} value={draft[field]} onChange={value => change(field, value)} required={field === 'goodsType'} disabled={disabled || busy || (creatorReadOnly && field === 'creatorName')} />)}
+      {[['vtuberName', '캐릭터'], ['goodsType', '굿즈 종류'], ['creatorName', '제작자'], ['genre', '작품/시리즈']].map(([field, label]) => field==='creatorName'&&creatorSlot ? <div key={field}>{creatorSlot}</div> : <ProductValueInput key={field} label={label} field={field} products={products} value={draft[field]} onChange={value => change(field, value)} disabled={disabled || busy || (creatorReadOnly && field === 'creatorName')} />)}
     </div></fieldset>
     <fieldset disabled={disabled || busy}><legend>이 행사 판매가</legend>
       <label className="management-field"><span>판매가 (원)</span><Input required min="0" step="1" type="number" value={draft.price} disabled={disabled || busy} onChange={value => change('price', value)} /></label>

@@ -21,8 +21,21 @@ export function useProductReorder({ products, disabled, onSave }) {
   };
   const targetAt=(x,y)=>{
     const current=drag.current;
-    const row=document.elementFromPoint(x,y)?.closest('[data-product-row]');
-    if(!current||!row||!current.table?.contains(row))return null;
+    if(!current)return null;
+    let row=document.elementFromPoint(x,y)?.closest('[data-product-row]');
+    if(!row||!current.table?.contains(row)){
+      row=null;
+      // Card grids have gaps between rows; tables and drops outside the grid keep cancelling.
+      const root=current.table?.matches('[data-reorder-root]')?current.table.getBoundingClientRect():null;
+      if(root&&x>=root.left&&x<=root.right&&y>=root.top&&y<=root.bottom){
+        let best=Infinity;
+        for(const candidate of current.table.querySelectorAll('[data-product-row]')){
+          const rect=candidate.getBoundingClientRect(),dx=Math.max(rect.left-x,0,x-rect.right),dy=Math.max(rect.top-y,0,y-rect.bottom),distance=dx*dx+dy*dy;
+          if(distance<best){best=distance;row=candidate;}
+        }
+      }
+      if(!row)return null;
+    }
     const index=current.order.indexOf(row.dataset.productRow);return index<0?null:index;
   };
   const tick=()=>{
@@ -51,11 +64,11 @@ export function useProductReorder({ products, disabled, onSave }) {
     onPointerDown:event=>{
       if(event.button!==0||event.isPrimary===false)return;
       const button=event.currentTarget;
-      if(begin(product,{pointerId:event.pointerId,button,table:button.closest('table'),container:button.closest('.page-content'),point:{x:event.clientX,y:event.clientY}})){
+      if(begin(product,{pointerId:event.pointerId,button,table:button.closest('table,[data-reorder-root]'),container:button.closest('.page-content,.catalog'),point:{x:event.clientX,y:event.clientY},grab:{x:event.clientX-button.getBoundingClientRect().left,y:event.clientY-button.getBoundingClientRect().top,width:button.getBoundingClientRect().width,height:button.getBoundingClientRect().height}})){
         event.preventDefault();button.focus();button.setPointerCapture(event.pointerId);frame.current=requestAnimationFrame(tick);
       }
     },
-    onPointerMove:event=>{if(drag.current?.pointerId===event.pointerId){event.preventDefault();drag.current.point={x:event.clientX,y:event.clientY};setTarget(targetAt(event.clientX,event.clientY));}},
+    onPointerMove:event=>{if(drag.current?.pointerId===event.pointerId){event.preventDefault();drag.current.point={x:event.clientX,y:event.clientY};setTarget(targetAt(event.clientX,event.clientY));setState({...drag.current});}},
     onPointerUp:event=>{if(drag.current?.pointerId===event.pointerId){event.preventDefault();setTarget(targetAt(event.clientX,event.clientY));return finish();}},
     onPointerCancel:cancel,onLostPointerCapture:cancel,
     onKeyDown:event=>{

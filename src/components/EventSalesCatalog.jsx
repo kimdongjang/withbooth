@@ -1,7 +1,7 @@
 import {useState} from 'react';
 import {won,eventCreatorNameOf} from '../utils/productDisplay';
 
-export default function EventSalesCatalog({items,event,products=[],sales,renderDetail,renderProduct,onAdd,disabled,productId='',navigate}) {
+export default function EventSalesCatalog({items,event,products=[],sales,renderDetail,renderProduct,onAdd,onBulk,disabled,productId='',navigate}) {
  const [selectedId,setSelectedId]=useState('');
  const allocation=item=>item.allocations.find(row=>row.projectId===event.id);
  const product=item=>products.find(row=>row.id===allocation(item)?.productId);
@@ -9,7 +9,7 @@ export default function EventSalesCatalog({items,event,products=[],sales,renderD
  const eventItems=items.filter(item=>allocation(item)&&product(item)&&product(item).isActive!==false);
  const selected=eventItems.find(item=>productId?item.allocations.some(row=>row.projectId===event.id&&row.productId===productId):item.id===selectedId);
  return <section className="product-management event-sales-catalog">
-  <header className="management-heading"><h2>{selected?'행사 상품 상세':'상품 목록'}</h2>{!selected&&onAdd&&<button type="button" className="management-add" disabled={disabled} onClick={onAdd}>+ 새 상품 등록</button>}{selected&&<button type="button" className="management-back" onClick={()=>navigate?navigate(`/products?projectId=${encodeURIComponent(event.id)}`):setSelectedId('')}>← 목록으로</button>}</header>
+  <header className="management-heading"><h2>{selected?'행사 상품 상세':'상품 목록'}</h2>{!selected&&onAdd&&<div className="management-actions">{onBulk&&<label className="management-add management-add-secondary" aria-disabled={disabled||undefined}>이미지로 일괄 추가<input hidden type="file" multiple accept="image/jpeg,image/png,image/webp" aria-label="상품 이미지 여러 장 선택" disabled={disabled} onChange={e=>{const files=Array.from(e.target.files||[]);e.target.value='';if(files.length)onBulk(files);}}/></label>}<button type="button" className="management-add" disabled={disabled} onClick={onAdd}>+ 새 상품 등록</button></div>}{selected&&<button type="button" className="management-back" onClick={()=>navigate?navigate(`/products?projectId=${encodeURIComponent(event.id)}`):setSelectedId('')}>← 목록으로</button>}</header>
   {selected?renderProduct(selected,product(selected)||{id:productId} ):<>
    <div className="management-summary"><span>상품 <b>{eventItems.length}개</b></span></div>
    <div className="management-table-wrap event-product-table-wrap"><table className="management-table event-product-number-table"><caption className="sr-only">판매 번호, 상품 이름, 제작자, 판매가, 배정 수량, 판매 수량, 남은 재고, 등록일</caption>
