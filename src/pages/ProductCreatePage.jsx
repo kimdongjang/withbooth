@@ -52,7 +52,7 @@ export default function ProductCreatePage({ projectId, onImageChange, readOnly, 
     const price = Number(draft.price);
     const stockQty = Number(draft.stockQty);
     if (artists && !allowDirectArtist && !artists.some(artist => artist.ownerId === draft.ownerId)) return alert('행사에 등록된 제작자를 선택해주세요.');
-    if (!draft.name.trim() || !draft.goodsType.trim() || draft.price === '' || draft.stockQty === '' || !Number.isSafeInteger(price) || price < 0 || price > 2147483647 || !Number.isSafeInteger(stockQty) || stockQty < 0 || stockQty > 2147483647) return alert('상품 이름, 굿즈 종류와 0 이상의 정수 판매가·재고를 입력해주세요.');
+    if (!draft.name.trim() || draft.price === '' || draft.stockQty === '' || !Number.isSafeInteger(price) || price < 0 || price > 2147483647 || !Number.isSafeInteger(stockQty) || stockQty < 0 || stockQty > 2147483647) return alert('상품 이름과 0 이상의 정수 판매가·재고를 입력해주세요.');
     const product = {
       ...draft, name: draft.name.trim(), productCode: draft.id, goodsType: draft.goodsType.trim(), vtuberName: draft.vtuberName.trim(), creatorName: artists ? (artists.find(artist => artist.ownerId === draft.ownerId)?.label || draft.creatorName || draft.artistName?.trim() || '') : draft.creatorName.trim(), genre: draft.genre.trim(),
       price, stockQty, stock: stockQty, initialStockQty: stockQty, size: '', isActive: true,
@@ -114,7 +114,6 @@ export default function ProductCreatePage({ projectId, onImageChange, readOnly, 
               <label className="management-field"><span>최초 입고 수량</span><Input required type="number" min="0" max="2147483647" step="1" value={draft.stockQty} onChange={value => change('stockQty', value)} /></label>
             </div></fieldset>
             <p className="management-note">최초 입고 수량을 상품·재고에 기록하고 전량을 현재 행사에 배정합니다. 판매가는 이 행사에만 적용됩니다.</p>
-            {uncertain && <p role="status" className="management-note">이전 등록의 완료 여부를 확인해야 합니다. 같은 내용으로 다시 시도하면 중복 없이 결과를 확인합니다.</p>}
             {imageError && <p role="alert" className="management-note">{imageError}</p>}
             <button data-guide="save" type="submit" className="management-add" disabled={creatorBusy}>{saving || busy ? '저장 중…' : registered ? (image ? '이미지 다시 저장' : '등록 완료') : '상품 등록'}</button>
             </div>

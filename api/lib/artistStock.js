@@ -196,7 +196,7 @@ async function setAllocation(sql,userId,owner,item,projectId,quantity,boothId,pr
   if(!productId) {
     productId=randomUUID();
     await sql`INSERT INTO pos_products(project_id,id,name,price,stock,stock_qty,initial_stock_qty,creator_name,goods_type,vtuber_name,genre,is_active)
-      VALUES(${projectId},${productId},${item.product.name},${price??Number(item.product.price||0)},0,0,0,${owner.display_name},${item.product.goodsType||item.product.name},${item.product.vtuberName||''},${item.product.genre||''},TRUE)`;
+      VALUES(${projectId},${productId},${item.product.name},${price??Number(item.product.price||0)},0,0,0,${owner.display_name},${item.product.goodsType??item.product.name},${item.product.vtuberName||''},${item.product.genre||''},TRUE)`;
     await sql`INSERT INTO pos_inventory_links(project_id,product_id,admin_id,inventory_id) VALUES(${projectId},${productId},${item.admin_id},${item.id})`;
   }
   const remaining=(previous?.remaining||0)+delta;
@@ -218,7 +218,7 @@ export async function createArtistStock(sql,userId,payload) {
   if(typeof name!=='string'||!name.trim()||name.trim().length>100||!integer(price)||!integer(quantity))fail('상품명·정수 가격·수량을 확인해주세요.',400);
   if(projectId)await eventAccess(sql,userId,ownerId,projectId,boothId);
   const item=(await sql`INSERT INTO pos_inventory(admin_id,id,product,stock,total_received)
-    VALUES(${sourceAdmin},${randomUUID()},${JSON.stringify({name:name.trim(),goodsType:String(payload.goodsType||name).slice(0,100),vtuberName:String(payload.vtuberName||'').slice(0,100),genre:String(payload.genre||'').slice(0,100),cost:integer(payload.cost)?payload.cost:0,price,creatorName:owner.display_name,createdAt:new Date().toISOString()})}::jsonb,${quantity},${quantity}) RETURNING *`).rows[0];
+    VALUES(${sourceAdmin},${randomUUID()},${JSON.stringify({name:name.trim(),goodsType:String(payload.goodsType??name).slice(0,100),vtuberName:String(payload.vtuberName||'').slice(0,100),genre:String(payload.genre||'').slice(0,100),cost:integer(payload.cost)?payload.cost:0,price,creatorName:owner.display_name,createdAt:new Date().toISOString()})}::jsonb,${quantity},${quantity}) RETURNING *`).rows[0];
   await sql`INSERT INTO pos_inventory_owners(admin_id,inventory_id,owner_id) VALUES(${sourceAdmin},${item.id},${ownerId})`;
   await activate(sql,item);
   let allocation;
@@ -297,7 +297,7 @@ export async function saveArtistProduct(sql,userId,payload) {
     next.imageUrl=product.imageUrl;
   }
   await sql`UPDATE pos_inventory SET product=${JSON.stringify(next)}::jsonb,version=version+1 WHERE admin_id=${item.admin_id} AND id=${item.id}`;
-  await sql`UPDATE pos_products p SET name=${next.name},goods_type=${next.goodsType||next.name},vtuber_name=${next.vtuberName||''},genre=${next.genre||''},image_url=${next.imageUrl||null}
+  await sql`UPDATE pos_products p SET name=${next.name},goods_type=${next.goodsType??next.name},vtuber_name=${next.vtuberName||''},genre=${next.genre||''},image_url=${next.imageUrl||null}
     FROM pos_inventory_links l WHERE l.project_id=p.project_id AND l.product_id=p.id AND l.admin_id=${item.admin_id} AND l.inventory_id=${item.id}`;
   return receipt(sql,userId,'saveArtistProduct',payload,prior.fingerprint,{inventory:await projection(sql,await itemFor(sql,ownerId,id),ownerId,boothId)});
 }

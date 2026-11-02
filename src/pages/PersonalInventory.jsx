@@ -67,6 +67,18 @@ export default function PersonalInventory({request,routeHash,navigate,event=null
  const send=(action,details)=>execute({action,payload:{ownerId:data?.inventory.find(item=>item.id===details.id)?.ownerId||scope.ownerId,...(scope.boothId?{boothId:scope.boothId}:{}),...details,requestId:crypto.randomUUID()}});
  const image=async(item,file)=>{try{const prepared=await prepareProductImage(file),uploaded=await uploadInventoryImage(item.custodianId,item.inventoryId,prepared,item.ownerId||scope.ownerId);await send('saveArtistProduct',{ownerId:item.ownerId,id:item.id,version:item.version,product:{...item,imageUrl:uploaded.url}});}catch(err){setError('');throw err;}};
  const disabled=busy;
+ const bulkImages=async files=>{
+  const owner=event.permissions.canManage?null:options.find(option=>option.catalog!==false);
+  if(!event.permissions.canManage&&!owner){setError('행사에 등록된 제작자를 선택해주세요.');return;}
+  const failures=[];
+  for(const file of files){
+   try{
+    const result=await execute({action:'registerEventArtistProduct',payload:{...(owner?{ownerId:owner.ownerId}:{}),boothId:event.boothId,projectId:event.id,name:file.name.replace(/\.[^.]+$/,'').trim().slice(0,100)||'새 굿즈',price:0,quantity:0,goodsType:'',vtuberName:'',genre:'',requestId:crypto.randomUUID()}});
+    await image(result.inventory,file);
+   }catch(err){failures.push(`${file.name}: ${err.message}`);}
+  }
+  if(failures.length)setError(failures.join(' / '));
+ };
  const registrationDisabled=disabled||!scope||!data;
  let detailId='';
  if(!event&&tool==='list'&&path!=='#/inventory'){try{detailId=decodeURIComponent(path.split('/').pop());}catch{}}
@@ -115,7 +127,7 @@ export default function PersonalInventory({request,routeHash,navigate,event=null
      <div className="management-product-body">
       <div className="management-image"><ProductImage imageUrl={newPreview} name={draft.name}/><label className="management-upload"><span>{newImage?'이미지 수정':'이미지 등록'}</span><input aria-label="새 상품 이미지 등록 또는 수정" type="file" accept="image/png,image/jpeg,image/webp" onChange={async e=>{const file=e.target.files?.[0];e.target.value='';if(!file)return;try{setNewImage(await prepareProductImage(file));}catch(error){setError(error.message);}}}/></label>{newImage&&<button type="button" className="management-delete" onClick={()=>setNewImage(null)}>이미지 제거</button>}</div>
       <div className="management-details">
-       <InventoryProductFields draft={draft} showPricing hideCreator products={[]} onChange={(key,value)=>setDraft(current=>({...current,[key]:value}))} disabled={registrationDisabled}/>
+       <InventoryProductFields draft={draft} hideCreator products={[]} onChange={(key,value)=>setDraft(current=>({...current,[key]:value}))} disabled={registrationDisabled}/>
        <fieldset><legend>입고</legend><div className="management-fields"><label className="management-field"><span>입고 수량</span><input type="number" min="0" step="1" required value={draft.stock} onChange={e=>setDraft({...draft,stock:Number(e.target.value)})}/></label></div></fieldset>
        <button className="management-add" disabled={registrationDisabled}>상품 등록</button>
       </div>
@@ -128,6 +140,6 @@ export default function PersonalInventory({request,routeHash,navigate,event=null
     try{const result=await execute({action:'importArtistStock',payload:{ownerId:scope.ownerId,boothId:scope.boothId,products:payload.products,requestId:batch.current}});imports.current=result.inventory;batch.current=null;return result;}catch(error){if(error.status>=400&&error.status<500)batch.current=null;throw error;}
    }} saveImage={async(id,file)=>{const item=imports.current.find(i=>i.importId===id);if(item)await image(item,file);}} onRegistered={()=>load(scope)}/>}
    {!event&&tool==='sales'&&<PersonalSalesHistory request={request} items={data?.inventory||[]}/> }
-   {event?scope&&data&&<EventSalesCatalog key={event.id} productId={eventProductId} navigate={navigate} renderProduct={renderEventProduct} onAdd={canCreate?()=>navigate('productNew'):undefined} disabled={disabled} items={data.inventory} event={event} products={eventProducts} sales={eventSales} renderDetail={renderItem}/>:tool==='list'?<PersonalInventoryCatalog items={data?.inventory||[]} events={data?.events||[]} detailId={detailId} navigate={navigate} renderDetail={renderItem}/>:null}
+   {event?scope&&data&&<EventSalesCatalog key={event.id} productId={eventProductId} navigate={navigate} renderProduct={renderEventProduct} onAdd={canCreate?()=>navigate('productNew'):undefined} onBulk={canCreate?bulkImages:undefined} disabled={disabled} items={data.inventory} event={event} products={eventProducts} sales={eventSales} renderDetail={renderItem}/>:tool==='list'?<PersonalInventoryCatalog items={data?.inventory||[]} events={data?.events||[]} detailId={detailId} navigate={navigate} renderDetail={renderItem}/>:null}
  </main></>;
 }
