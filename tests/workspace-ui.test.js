@@ -563,7 +563,8 @@ test('event settings catalog shows local sales and stock while its cached invent
 
 test('sales navigation stays visible and event tools follow server capabilities',async()=>{
  for(const [permissions,expected] of [
-  [{canViewPos:true},['판매']],
+  [{canViewPos:true},['판매','판매 현황']],
+  [{canViewPos:true,ownerIds:['own']},['판매','상품 관리','판매 현황']],
   [{ownerIds:['own']},['상품 관리','판매 현황']],
   [{canSell:true,canConfigure:true,ownerIds:['own']},['판매','상품 관리','판매 현황']],
   [{canSell:true,canConfigure:true,canManage:true,canSettle:true},['판매','상품 관리','판매 현황','행사 관리']]

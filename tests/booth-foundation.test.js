@@ -552,7 +552,7 @@ test('legacy opening projection retains sold counts, unknown deductions and zero
   source.movements.push({request:{projectId:'e',productId:'p',quantity:1}});
   balance=foundation.inventoryBalance(source,{id:'i',stock:3});assert.equal(balance.allocations[0].historicalDeduction,1);
 });
-test('event assistants can sell/configure only their assigned event; ordinary artists receive no full POS or settlement access',async()=>{
+test('event assistants can sell/configure only their assigned event; ordinary artists read the event without settlement access',async()=>{
  const f=await fixture();try {
   const {boothId}=await f.migrate();
   let home=await f.invoke('booths',null,{},'a',{query:{workspace:'home'}});assert.equal(home.status,200,JSON.stringify(home.body));
@@ -561,7 +561,7 @@ test('event assistants can sell/configure only their assigned event; ordinary ar
   assert.equal((await f.invoke('booths','acceptArtistInvitation',{token:invite.body.invitation.token,acceptSharedStock:true},'b')).status,200);
   home=await f.invoke('booths',null,{},'b',{query:{workspace:'home'}});
   assert.equal(home.body.events[0].permissions.canSell,false);assert.equal(home.body.events[0].permissions.ownerIds[0],profile.owner_id);
-  assert.equal((await f.invoke('pos',null,{},'b',{query:{boothId,projectId:f.event}})).status,403);
+  assert.equal((await f.invoke('pos',null,{},'b',{query:{boothId,projectId:f.event}})).status,200);
   const grant={boothId,projectId:f.event,targetUserId:'b',role:'assistant',status:'active',version:0,requestId:crypto.randomUUID()};
   assert.equal((await f.invoke('booths','saveEventAccess',grant,'b')).status,403);
   assert.equal((await f.invoke('booths','saveEventAccess',grant)).status,200);
@@ -579,7 +579,7 @@ test('event assistants can sell/configure only their assigned event; ordinary ar
   let access=await f.invoke('booths',null,{},'a',{query:{workspace:'access',boothId,projectId:f.event}});
   const staff=access.body.staff[0];assert.equal(staff.role,'assistant');
   assert.equal((await f.invoke('booths','saveEventAccess',{...grant,status:'ended',version:staff.version,requestId:crypto.randomUUID()})).status,200);
-  assert.equal((await f.invoke('pos',null,{},'b',{query:{boothId,projectId:f.event}})).status,403);
+  assert.equal((await f.invoke('pos',null,{},'b',{query:{boothId,projectId:f.event}})).status,200);
   const after=(await f.invoke('booths',null,{},'b',{query:{artists:'stock',ownerId:profile.owner_id,boothId,projectId:f.event}})).body.inventory[0];
   assert.equal((await f.invoke('booths','setArtistAllocation',{ownerId:profile.owner_id,boothId,id:after.id,version:after.version,projectId:f.event,quantity:8,requestId:crypto.randomUUID()},'b')).status,403,'ordinary artist remains read-only on event day after delegation is revoked');
  }finally{await f.db.close();}
@@ -646,6 +646,23 @@ test('booth information and common member changes are scoped, replayable and own
  }finally{await f.db.close();}
 });
 
+
+test('ordinary event participants read the event and register products on event days but cannot sell, cancel or change stock',async()=>{
+ const f=await fixture();try{
+  const {boothId}=await f.migrate();
+  await f.invoke('booths',null,{},'a',{query:{workspace:'home'}});
+  const owner=(await f.db.query("SELECT id FROM pos_stock_owners WHERE display_name='작가'")).rows[0].id;
+  const invite=await f.invoke('booths','issueArtistInvitation',{boothId,profileId:owner});
+  assert.equal((await f.invoke('booths','acceptArtistInvitation',{token:invite.body.invitation.token,acceptSharedStock:true},'b')).status,200);
+  await f.sql`INSERT INTO pos_event_stock_policy(project_id,starts_on,ends_on) VALUES(${f.event},(NOW() AT TIME ZONE 'Asia/Seoul')::date,(NOW() AT TIME ZONE 'Asia/Seoul')::date) ON CONFLICT(project_id) DO UPDATE SET starts_on=EXCLUDED.starts_on,ends_on=EXCLUDED.ends_on`;
+  assert.equal((await f.invoke('pos',null,{},'b',{query:{boothId,projectId:f.event}})).status,200);
+  for(const action of ['finalizeSale','voidSale'])assert.equal((await f.invoke('pos',action,{id:'sale'},'b',{query:{boothId,projectId:f.event}})).status,403);
+  const product={ownerId:owner,boothId,projectId:f.event,name:'당일 상품',goodsType:'',price:0,quantity:0};
+  const registered=await f.invoke('booths','registerEventArtistProduct',{...product,requestId:crypto.randomUUID()},'b');assert.equal(registered.status,200,JSON.stringify(registered.body));
+  assert.equal(registered.body.inventory.allocations[0].projectId,f.event);
+  assert.equal((await f.invoke('booths','createArtistStock',{...product,requestId:crypto.randomUUID()},'b')).status,403);
+ }finally{await f.db.close();}
+});
 
 test('event product direct artist and administrator choices register atomically, replay and link later without changing stock',async()=>{
  const f=await fixture();try{
@@ -727,7 +744,7 @@ test('event manager searches and links an unlinked artist, counts products and a
   assert.equal(refreshed.body.profiles.find(p=>p.id===profile.id).avatar,'data:image/png;base64,YQ==');
   assert.equal(refreshed.body.profiles.find(p=>p.id===profile.id).email,undefined);
   let access=await f.invoke('booths','saveEventAccess',{projectId:f.event,boothId,targetUserId:'b',role:'seller',status:'active',version:0,requestId:crypto.randomUUID()});assert.equal(access.status,200,JSON.stringify(access.body));
-  let permission=await eventAccess.eventPermissions(f.sql,'b',f.event);assert.equal(permission.permissions.canSell,true);assert.equal(permission.permissions.canConfigure,false);assert.equal(permission.permissions.canManage,false);
+  let permission=await eventAccess.eventPermissions(f.sql,'b',f.event);assert.equal(permission.permissions.canSell,false);assert.equal(permission.permissions.canViewPos,true);assert.equal(permission.permissions.canConfigure,false);assert.equal(permission.permissions.canManage,false);
   access=await f.invoke('booths','saveEventAccess',{projectId:f.event,boothId,targetUserId:'b',role:'assistant',status:'active',version:1,requestId:crypto.randomUUID()});assert.equal(access.status,200);
   permission=await eventAccess.eventPermissions(f.sql,'b',f.event);assert.equal(permission.permissions.canConfigure,true);assert.equal(permission.permissions.canManage,false);
   assert.equal((await f.invoke('booths',null,{},'b',{query:search})).status,403);

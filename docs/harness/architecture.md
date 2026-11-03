@@ -905,7 +905,7 @@ EventAccessPanel은 참여 작가를 닉네임/현재 행사 등록 상품 수/�
 
 사용자의 명시적 계정 검색·연결 요청에 따라 운영자 직접 연결 경로를 추가했다. GET workspace=searchAccounts는 현재 행사의 manage 권한을 확인하고 닉네임 부분 검색/아이디·이메일 완전 일치 검색으로 활성 계정 최대 20개의 id/nickname만 반환한다(검색어 2~100자). POST linkEventArtistAccount는 현재 행사와 부스의 활성 미연결 proxy 프로필 및 활성 대상 계정을 잠그고 연결한다. source ownerId·재고·판매·정산 스냅샷은 보존하고 owner_members/프로필/부스 참여 관계만 갱신한다. 기존 초대는 철회하며 profile_linked_by_operator 감사 이력과 행사 명령 영수증을 같은 트랜잭션에 저장한다. 기존 초대·본인 수락 API는 유지한다. 같은 요청은 같은 결과, 다른 내용/이미 연결된 작가는 충돌이며 중간 실패는 전체 롤백한다.
 
-행사 권한 선택의 부스참여자는 기존 seller(현재 행사 판매), 부관리자는 assistant(현재 행사 판매/설정)로 연결한다. 권한을 아직 받지 않은 계정은 권한 선택 상태로 표시하고 자동 승격하지 않는다. 연결 전에는 선택을 비활성화한다. 부스 owner/manager는 운영자로 표시하고 이 선택으로 전역 운영 권한을 변경하지 않는다. 다른 행사·부스 권한이나 영구 계정 유형을 부여하지 않는다. 새 스키마는 추가하지 않았다.
+행사 권한 선택의 부스참여자는 기존 seller(조회·새 상품 등록, 2026-11-03 변경), 부관리자는 assistant(현재 행사 판매/설정)로 연결한다. 권한을 아직 받지 않은 계정은 권한 선택 상태로 표시하고 자동 승격하지 않는다. 연결 전에는 선택을 비활성화한다. 부스 owner/manager는 운영자로 표시하고 이 선택으로 전역 운영 권한을 변경하지 않는다. 다른 행사·부스 권한이나 영구 계정 유형을 부여하지 않는다. 새 스키마는 추가하지 않았다.
 
 ## 판매현황·행사 관리 정산 마감 분리 (2026-10-23)
 
@@ -1087,3 +1087,13 @@ public/robots.txt는 홈 및 렌더링 자산 크롤링을 허용하고 /api/, /
 ## 전역 토스트
 
 `src/utils/toast.js`의 `showToast`와 `src/components/ToastHost.jsx`가 전역 토스트를 담당한다. `App.jsx`의 `requestJson`이 백그라운드가 아닌 쓰기 요청(POST 등)이 실패하면 서버 메시지를 오류 토스트로(401 제외), 성공하면 `successMessages`에 등록된 명령(action)에 한해 성공 토스트로 알린다. 읽기(GET)·백그라운드 동기화·미등록 명령은 토스트를 띄우지 않으며 결제 완료는 기존 `PaymentToast`를 유지한다. 같은 메시지는 동시에 한 번만 표시한다. 새 사용자 명령을 추가하면 `successMessages`에 문구를 등록한다.
+
+## 행사 권한 분리 (2026-11-03)
+
+`eventPermissions`의 `canSell`·`canConfigure`는 운영자(부스 owner/manager)와 부관리자(assistant)에게만 준다. 부스참여자(seller)와 참여 제작자는 `canViewPos`로 판매·상품 관리·판매 현황을 볼 수 있고 행사 관리는 볼 수 없다. `pos` 조회 권한은 `canViewPos`를 따르며 `finalizeSale`·`voidSale`은 서버에서 `sell` 권한으로 거절한다.
+
+`App.jsx`의 `viewerOnly`가 `readOnly`로 이어져 판매 카드·결제·판매 취소·판매 내역 초기화를 막는다. 카드는 `ItemButton`의 `locked`로 비활성화하므로 재고가 있는 상품을 품절로 표시하지 않는다. 판매 현황은 `canViewPos`면 행사 전체 집계와 내역을 보여주는 `SettlementPage`를 사용하고, 행사 참여가 끝나 기록만 남은 계정은 기존 `PersonalOverview`를 사용한다.
+
+참여자의 새 상품 등록은 `registerEventArtistProduct`에서 `createArtistStock`의 내부 옵션 `registering`을 넘겨 행사 당일과 일정 미설정 행사에서도 허용한다. 공개 액션 payload로는 이 옵션을 지정할 수 없고, 기존 상품의 재고·배정 변경에 대한 행사 기간 제한은 유지한다.
+
+권한이 없는 기기의 미동기화 주문은 `useSync`가 전송하지 않고 IndexedDB에 남는다. 배포 전 판매 담당 기기의 대기 주문을 먼저 전송하거나 해당 계정을 부관리자로 변경해야 한다.
