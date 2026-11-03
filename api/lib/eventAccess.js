@@ -85,9 +85,10 @@ export async function eventPermissions(sql,userId,projectId) {
     JOIN pos_stock_owners o ON o.id=r.owner_id AND o.linked_user_id=${userId} AND o.link_status='linked'
     WHERE e.project_id=${projectId} LIMIT 1`).rows.length>0;
   const seller=Boolean(active&&event.member_status==='active'&&event.booth_role==='seller');
-  const canSell=Boolean(active&&(operator||seller||staff));
-  const canConfigure=Boolean(active&&(operator||staff?.role==='assistant'));
-  return {...event,permissions:{operator,canSell,canConfigure,canManage:operator,canSettle:operator,canReadOwnHistory:Boolean(active&&historical),canRead:operator||canSell||canConfigure||Boolean(active&&(owners.length||historical)),ownerIds:active?owners:[],role:operator?'operator':staff?.role||(seller?'seller':owners.length||historical?'artist':'none')}};
+  const canSell=Boolean(active&&(operator||staff?.role==='assistant'));
+  const canConfigure=canSell;
+  const canViewPos=Boolean(active&&(canSell||seller||staff||owners.length));
+  return {...event,permissions:{operator,canSell,canViewPos,canConfigure,canManage:operator,canSettle:operator,canReadOwnHistory:Boolean(active&&historical),canRead:canViewPos||Boolean(active&&historical),ownerIds:active?owners:[],role:operator?'operator':staff?.role||(seller?'seller':owners.length||historical?'artist':'none')}};
 }
 
 export async function authorizeEvent(sql,userId,projectId,capability='read',boothId) {
@@ -97,7 +98,7 @@ export async function authorizeEvent(sql,userId,projectId,capability='read',boot
   await sql`SELECT id FROM pos_booths WHERE id=${event.booth_id} FOR UPDATE`;
   await sql`SELECT id FROM pos_projects WHERE id=${projectId} FOR UPDATE`;
   event=await eventPermissions(sql,userId,projectId);
-  const rights={read:event.permissions.canRead,pos:event.permissions.canSell||event.permissions.canConfigure,sell:event.permissions.canSell,configure:event.permissions.canConfigure,manage:event.permissions.canManage,settle:event.permissions.canSettle};
+  const rights={read:event.permissions.canRead,pos:event.permissions.canViewPos,sell:event.permissions.canSell,configure:event.permissions.canConfigure,manage:event.permissions.canManage,settle:event.permissions.canSettle};
   if(!rights[capability])fail('이 행사의 작업 권한이 없습니다.');
   if(capability!=='read'&&event.booth_status!=='active')fail('종료된 부스입니다.',409);
   return {...event,id:event.booth_id,role:event.booth_role||event.permissions.role};

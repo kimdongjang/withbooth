@@ -71,7 +71,7 @@ async function lockScope(sql,userId,ownerId,boothId,item,projectIds=[],allowEndi
   return {owner,own,booth};
 }
 
-async function eventAccess(sql,userId,ownerId,projectId,boothId,{returning=false}={}) {
+async function eventAccess(sql,userId,ownerId,projectId,boothId,{returning=false,registering=false}={}) {
   await sql`SELECT b.id FROM pos_booths b JOIN pos_event_booths e ON e.booth_id=b.id WHERE e.project_id=${projectId} FOR UPDATE OF b`;
   await sql`SELECT a.owner_id FROM pos_booth_artists a JOIN pos_event_booths e ON e.booth_id=a.booth_id WHERE e.project_id=${projectId} AND a.owner_id=${ownerId} FOR UPDATE OF a`;
   await sql`SELECT project_id FROM pos_event_stock_policy WHERE project_id=${projectId} FOR UPDATE`;
@@ -95,7 +95,8 @@ async function eventAccess(sql,userId,ownerId,projectId,boothId,{returning=false
   if(!operator) {
     const own=(await sql`SELECT owner_id FROM pos_owner_members WHERE owner_id=${ownerId} AND user_id=${userId}`).rows.length;
     if(!own)fail('행사 재고 관리 권한이 없습니다.',403);
-    if(!row.starts_on||row.event_day)fail('행사 기간 또는 일정 미설정 행사에서는 운영자만 재고를 관리할 수 있습니다.',403);
+    // A new product adds stock without touching allocated stock, so participants may register it on event days.
+    if(!registering&&(!row.starts_on||row.event_day))fail('행사 기간 또는 일정 미설정 행사에서는 운영자만 재고를 관리할 수 있습니다.',403);
   }
   if(!['active','proxy',...(returning?['ending']:[])].includes(row.participation))fail('참여 제작자의 재고가 아닙니다.',403);
   if(row.booth_status!=='active'||row.closed_at||(!returning&&row.archived_at))fail('종료·보관·정산 마감 상태를 확인해주세요.');
@@ -183,11 +184,11 @@ async function bindIdentity(sql,owner,boothId,projectId,productId) {
     VALUES(${projectId},${productId},${owner.id},${recipient.id},'inventory') ON CONFLICT DO NOTHING`;
 }
 
-async function setAllocation(sql,userId,owner,item,projectId,quantity,boothId,price) {
+async function setAllocation(sql,userId,owner,item,projectId,quantity,boothId,price,{registering=false}={}) {
   const source=await sharedInventorySource(sql,item),balance=inventoryBalance(source,item);
   const previous=balance.allocations.find(a=>a.projectId===projectId);
   const delta=quantity-(previous?.initial||0);
-  const event=await eventAccess(sql,userId,owner.id,projectId,boothId,{returning:delta<0});
+  const event=await eventAccess(sql,userId,owner.id,projectId,boothId,{returning:delta<0,registering});
   if(event.participation==='ending'&&price!=null&&previous&&price!==Number(source.products.find(p=>p.project_id===projectId&&p.id===previous.productId)?.price))fail('참여 종료 정리 중에는 행사 가격을 변경할 수 없습니다.');
   if(item.product.removedAt)fail('제거된 재고입니다.');
   if(item.stock<delta||previous&&previous.remaining+delta<0)fail('미배정 재고 또는 행사 잔량이 부족합니다.',400);
@@ -208,7 +209,7 @@ async function setAllocation(sql,userId,owner,item,projectId,quantity,boothId,pr
   return {projectId,productId,before:previous?.initial||0,after:quantity,warehouseDelta:-delta};
 }
 
-export async function createArtistStock(sql,userId,payload) {
+export async function createArtistStock(sql,userId,payload,{registering=false}={}) {
   const {ownerId,boothId,projectId,name,price,quantity}=payload;
   const access=await ownerAccess(sql,userId,ownerId,boothId);
   const sourceAdmin=access.owner.linked_user_id||(await sql`SELECT legacy_admin_id FROM pos_booths WHERE id=${access.owner.origin_booth_id}`).rows[0]?.legacy_admin_id;
@@ -216,13 +217,13 @@ export async function createArtistStock(sql,userId,payload) {
   const {owner}=await lockScope(sql,userId,ownerId,boothId,{admin_id:sourceAdmin,id:''},projectId?[projectId]:[]);
   const prior=await replay(sql,userId,'createArtistStock',payload);if(prior.result)return prior.result;
   if(typeof name!=='string'||!name.trim()||name.trim().length>100||!integer(price)||!integer(quantity))fail('상품명·정수 가격·수량을 확인해주세요.',400);
-  if(projectId)await eventAccess(sql,userId,ownerId,projectId,boothId);
+  if(projectId)await eventAccess(sql,userId,ownerId,projectId,boothId,{registering});
   const item=(await sql`INSERT INTO pos_inventory(admin_id,id,product,stock,total_received)
     VALUES(${sourceAdmin},${randomUUID()},${JSON.stringify({name:name.trim(),goodsType:String(payload.goodsType??name).slice(0,100),vtuberName:String(payload.vtuberName||'').slice(0,100),genre:String(payload.genre||'').slice(0,100),cost:integer(payload.cost)?payload.cost:0,price,creatorName:owner.display_name,createdAt:new Date().toISOString()})}::jsonb,${quantity},${quantity}) RETURNING *`).rows[0];
   await sql`INSERT INTO pos_inventory_owners(admin_id,inventory_id,owner_id) VALUES(${sourceAdmin},${item.id},${ownerId})`;
   await activate(sql,item);
   let allocation;
-  if(projectId)allocation=await setAllocation(sql,userId,owner,item,projectId,quantity,boothId,price);
+  if(projectId)allocation=await setAllocation(sql,userId,owner,item,projectId,quantity,boothId,price,{registering});
   const saved=(await sql`SELECT * FROM pos_inventory WHERE admin_id=${item.admin_id} AND id=${item.id}`).rows[0];
   return receipt(sql,userId,'createArtistStock',payload,prior.fingerprint,{inventory:await projection(sql,saved,ownerId,boothId),allocation,change:{before:0,after:quantity,reason:'receipt'}});
 }
@@ -458,7 +459,7 @@ export async function registerEventArtistProduct(sql,userId,payload) {
  }
  const key=hash({requestId,action:'createArtistStock'});
  const stockRequestId=`${key.slice(0,8)}-${key.slice(8,12)}-${key.slice(12,16)}-${key.slice(16,20)}-${key.slice(20,32)}`;
- const result=await createArtistStock(sql,userId,{...payload,ownerId,artistName:undefined,requestId:stockRequestId});
+ const result=await createArtistStock(sql,userId,{...payload,ownerId,artistName:undefined,requestId:stockRequestId},{registering:true});
  await sql`INSERT INTO pos_event_access_commands(id,actor_id,project_id,fingerprint,result) VALUES(${requestId},${userId},${projectId},${fingerprint},${JSON.stringify(result)}::jsonb)`;
  return result;
 }

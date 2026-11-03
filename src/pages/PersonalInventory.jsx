@@ -102,7 +102,7 @@ export default function PersonalInventory({request,routeHash,navigate,event=null
    return request(query);
   }}/>;
  const title=detailId?'상세정보':tool==='new'?'상품 등록':tool==='import'?(path.endsWith('/review')?'업로드 완료 · 편집':'재고 일괄등록'):tool==='sales'?'내 판매내역':'재고 목록';
- const canCreate=event&&!event.archivedAt&&!event.settlementClosedAt&&(event.permissions.canConfigure||data?.events.some(row=>row.id===event.id&&(row.detailEditable??(row.operator||row.artistEditable))));
+ const canCreate=event&&!event.archivedAt&&!event.settlementClosedAt&&(event.permissions.canConfigure||event.permissions.ownerIds?.length>0);
  if(event&&tool==='eventNew')return <><ProductCreatePage creatorRequest={event.permissions.canManage?request:undefined} creatorProject={event} onRefreshCreators={refreshCreators} projectId={event.id} artists={options} allowDirectArtist={Boolean(event.permissions.canManage)} products={eventProducts} saving={busy} readOnly={!canCreate} onBack={()=>navigate('settings')} registerProduct={async product=>{
   const artist=options.find(option=>option.ownerId===product.ownerId);
   if(!artist&&!(event.permissions.canManage&&!product.ownerId))throw Object.assign(new Error('행사에 등록된 제작자를 선택해주세요.'),{status:400});
