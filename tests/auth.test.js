@@ -42,32 +42,38 @@ test('email signup, database uniqueness, legacy migration and unchanged login', 
     assert.equal(await auth.namespace.validateAdminPassword('existing', 'wrong', sql), false);
     assert.equal((await invoke({ id: 'admin', password: 'wrong-password' })).status, 401);
     for (const email of [undefined, '', 'invalid', 'a b@example.com', 'x'.repeat(255)]) {
-      assert.equal((await invoke({ mode: 'signup', id: 'new-user', password: 'password', email })).status, 400);
+      assert.equal((await invoke({ mode: 'signup', privacyConsent: true, id: 'new-user', password: 'password', email })).status, 400);
     }
-    const signup = await invoke({ mode: 'signup', id: 'new-user', password: 'password', email: ' User@Example.com ' });
+    for (const privacyConsent of [undefined, false, 'true']) assert.equal((await invoke({ mode: 'signup', privacyConsent, id: 'new-user', password: 'password', email: 'user@example.com' })).status, 400);
+    assert.equal((await db.query("SELECT id FROM pos_admins WHERE id = 'new-user'")).rows.length, 0);
+    const signup = await invoke({ mode: 'signup', privacyConsent: true, id: 'new-user', password: 'password', email: ' User@Example.com ' });
     assert.equal(signup.status, 201);
+    const consent = (await db.query("SELECT privacy_consented_at, privacy_policy_version FROM pos_admins WHERE id = 'new-user'")).rows[0];
+    assert.ok(consent.privacy_consented_at);
+    assert.equal(consent.privacy_policy_version, auth.namespace.PRIVACY_POLICY_VERSION);
+    assert.equal((await db.query("SELECT privacy_consented_at FROM pos_admins WHERE id = 'existing'")).rows[0].privacy_consented_at, null);
     assert.equal((await db.query("SELECT allow_operator_stock FROM pos_admins WHERE id='new-user'")).rows[0].allow_operator_stock,true);
     assert.equal((await db.query("SELECT allow_operator_stock FROM pos_admins WHERE id='existing'")).rows[0].allow_operator_stock,true);
-    const dupId = await invoke({ mode: 'signup', id: 'new-user', password: 'password', email: 'other@example.com' });
+    const dupId = await invoke({ mode: 'signup', privacyConsent: true, id: 'new-user', password: 'password', email: 'other@example.com' });
     assert.equal(dupId.status, 409); assert.match(dupId.body.error, /아이디/);
-    const dupEmail = await invoke({ mode: 'signup', id: 'other-user', password: 'password', email: 'USER@example.com' });
+    const dupEmail = await invoke({ mode: 'signup', privacyConsent: true, id: 'other-user', password: 'password', email: 'USER@example.com' });
     assert.equal(dupEmail.status, 409); assert.match(dupEmail.body.error, /이메일/);
 
     assert.match(signup.body.admin.nickname, /^(똑똑한|맛있는|즐거운|다정한|용감한|반짝이는) (자동차|딸기|고양이|구름|토끼|별)$/);
-    assert.equal((await invoke({ mode: 'signup', id: 'nick-user', password: 'password', email: 'nick@example.com', nickname: '  부스작가  ' })).body.admin.nickname, '부스작가');
-    assert.equal((await invoke({ mode: 'signup', id: 'long-nick', password: 'password', email: 'long@example.com', nickname: 'x'.repeat(31) })).status, 400);
+    assert.equal((await invoke({ mode: 'signup', privacyConsent: true, id: 'nick-user', password: 'password', email: 'nick@example.com', nickname: '  부스작가  ' })).body.admin.nickname, '부스작가');
+    assert.equal((await invoke({ mode: 'signup', privacyConsent: true, id: 'long-nick', password: 'password', email: 'long@example.com', nickname: 'x'.repeat(31) })).status, 400);
     assert.equal(signup.body.admin.email, 'user@example.com');
     assert.equal(auth.namespace.verifyToken(signup.body.token).id, 'new-user');
     assert.notEqual((await db.query("SELECT password_hash FROM pos_admins WHERE id = 'new-user'")).rows[0].password_hash, 'password');
-    assert.equal((await invoke({ mode: 'signup', id: 'another', password: 'password', email: 'USER@example.com' })).status, 409);
-    assert.equal((await invoke({ mode: 'signup', id: 'new-user', password: 'password', email: 'other@example.com' })).status, 409);
+    assert.equal((await invoke({ mode: 'signup', privacyConsent: true, id: 'another', password: 'password', email: 'USER@example.com' })).status, 409);
+    assert.equal((await invoke({ mode: 'signup', privacyConsent: true, id: 'new-user', password: 'password', email: 'other@example.com' })).status, 409);
     await assert.rejects(db.query('INSERT INTO pos_admins (id, email, password_hash) VALUES ($1, $2, $3)', ['direct', ' USER@EXAMPLE.COM ', hash]), error => error.code === '23505');
     await db.query("UPDATE pos_admins SET email = 'assigned@example.com' WHERE id = 'admin'");
     await auth.namespace.initAuthDb();
     assert.equal((await db.query("SELECT email FROM pos_admins WHERE id = 'admin'")).rows[0].email, 'assigned@example.com');
     await db.query("UPDATE pos_admins SET deleted_at=NOW(),password_hash='',email=NULL,nickname=NULL WHERE id='new-user'");
     assert.equal((await invoke({ id: 'new-user', password: 'password' })).status, 401);
-    assert.equal((await invoke({ mode: 'signup', id: 'new-user', password: 'password', email: 'reuse@example.com' })).status, 409);
+    assert.equal((await invoke({ mode: 'signup', privacyConsent: true, id: 'new-user', password: 'password', email: 'reuse@example.com' })).status, 409);
   } finally {
     await db.close();
   }

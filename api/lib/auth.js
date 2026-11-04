@@ -33,6 +33,9 @@ export async function initAuthDb() {
   await sql`ALTER TABLE pos_admins ADD COLUMN IF NOT EXISTS email TEXT`;
   await sql`ALTER TABLE pos_admins ADD COLUMN IF NOT EXISTS nickname TEXT`;
   await sql`ALTER TABLE pos_admins ADD COLUMN IF NOT EXISTS deleted_at TIMESTAMPTZ`;
+  // Signup consent record; accounts created before the policy keep NULL.
+  await sql`ALTER TABLE pos_admins ADD COLUMN IF NOT EXISTS privacy_consented_at TIMESTAMPTZ`;
+  await sql`ALTER TABLE pos_admins ADD COLUMN IF NOT EXISTS privacy_policy_version TEXT`;
   await sql`CREATE UNIQUE INDEX IF NOT EXISTS pos_admins_email_unique ON pos_admins (LOWER(BTRIM(email)))`;
 
   if (legacyAdminPassword()) {
@@ -46,13 +49,17 @@ export async function initAuthDb() {
   await sql`UPDATE pos_admins SET email = 'naru3644@gmail.com' WHERE id = 'admin' AND email IS NULL AND deleted_at IS NULL`;
 }
 
-export async function createAdmin(id, password, email, nickname) {
+// Bump when the signup privacy notice text changes materially.
+export const PRIVACY_POLICY_VERSION = '2026-11-04';
+
+export async function createAdmin(id, password, email, nickname, { privacyConsent } = {}) {
   const adminId = String(id || '').trim();
   const adminEmail = typeof email === 'string' ? email.trim().toLowerCase() : '';
   const invalid = (message) => Object.assign(new Error(message), { status: 400 });
   if (!/^[a-zA-Z0-9_.-]{3,32}$/.test(adminId)) throw invalid('아이디는 영문/숫자/._- 조합 3~32자로 입력해주세요.');
   if (typeof password !== 'string' || password.length < 6) throw invalid('패스워드는 6자 이상 입력해주세요.');
   if (adminEmail.length > 254 || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(adminEmail)) throw invalid('올바른 이메일을 입력해주세요.');
+  if (privacyConsent !== true) throw invalid('개인정보 수집·이용에 동의해주세요. 동의 항목이 보이지 않으면 페이지를 새로고침해주세요.');
   const displayName = nicknameValue(nickname);
   await initAuthDb();
 
@@ -61,7 +68,7 @@ export async function createAdmin(id, password, email, nickname) {
   if (taken.some(row => row.id === adminId)) throw Object.assign(new Error('이미 사용 중인 아이디입니다.'), { status: 409 });
   if (taken.length) throw Object.assign(new Error('이미 사용 중인 이메일입니다.'), { status: 409 });
   try {
-    await sql`INSERT INTO pos_admins (id, email, password_hash, nickname) VALUES (${adminId}, ${adminEmail}, ${hashPassword(password)}, ${displayName})`;
+    await sql`INSERT INTO pos_admins (id, email, password_hash, nickname, privacy_consented_at, privacy_policy_version) VALUES (${adminId}, ${adminEmail}, ${hashPassword(password)}, ${displayName}, NOW(), ${PRIVACY_POLICY_VERSION})`;
   } catch (error) {
     if (String(error.code) === '23505') throw Object.assign(new Error('이미 사용 중인 아이디 또는 이메일입니다.'), { status: 409 });
     throw error;
