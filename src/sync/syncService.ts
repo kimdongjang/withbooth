@@ -6,6 +6,16 @@ export interface SyncSnapshot {
   pendingCount: number;
   lastSyncedAt: string | null;
   lastError?: string | null;
+  lastRejection?: { projectId: string; localOrderId: string; action?: string; error: string; at: string } | null;
+}
+
+// A queued settings change (it carries commandId) is final when the server
+// rejects it: invalid input, lost permission, another device's change (409) or a
+// closed/archived/separated event. Network, server, authentication, retired
+// contract and serialization (retryable) failures are kept and resent.
+export function rejectsSettingsCommand(status: number, body: { retryable?: boolean } | null): boolean {
+  if (body?.retryable) return false;
+  return [400, 403, 404, 409, 422].includes(status);
 }
 
 export type SyncListener = (snapshot: SyncSnapshot) => void;
@@ -104,7 +114,7 @@ class SyncService {
 
         try {
 
-          const response = await fetch(this.endpoint, {
+          const response = await fetch(order.endpoint || this.endpoint, {
             method: 'POST',
             headers: {
               'Content-Type': 'application/json',
@@ -115,6 +125,16 @@ class SyncService {
           });
           // A truncated success response is uncertain, so retain and retry the ID.
           const data = await response.json();
+          const commandId = (order.payload as { commandId?: string })?.commandId;
+          if (!response.ok && commandId && rejectsSettingsCommand(response.status, data)) {
+            const error = data.error || '설정 변경이 거부되었습니다.';
+            const at = new Date().toISOString();
+            // Kept as a record and never resent; later commands still go out in order.
+            await this.repository.updateStatus(order.id, 'REJECTED', { lastSyncAt: at, lastError: error });
+            this.snapshot = { ...this.snapshot, lastError: error, lastRejection: { projectId, localOrderId: order.localOrderId, action: (order.payload as { action?: string })?.action, error, at } };
+            this.emit();
+            continue;
+          }
           if (!response.ok) throw new Error(data.error || '주문 동기화에 실패했습니다.');
 
           const syncedAt = new Date().toISOString();

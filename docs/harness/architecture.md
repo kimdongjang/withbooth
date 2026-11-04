@@ -1101,3 +1101,23 @@ public/robots.txt는 홈 및 렌더링 자산 크롤링을 허용하고 /api/, /
 참여자의 새 상품 등록은 `registerEventArtistProduct`에서 `createArtistStock`의 내부 옵션 `registering`을 넘겨 행사 당일과 일정 미설정 행사에서도 허용한다. 공개 액션 payload로는 이 옵션을 지정할 수 없고, 기존 상품의 재고·배정 변경에 대한 행사 기간 제한은 유지한다.
 
 권한이 없는 기기의 미동기화 주문은 `useSync`가 전송하지 않고 IndexedDB에 남는다. 배포 전 판매 담당 기기의 대기 주문을 먼저 전송하거나 해당 계정을 부관리자로 변경해야 한다.
+
+
+## 행사 설정 변경 로컬 우선 큐 (2026-11-04)
+
+판매 번호 순서 변경(`reorderProducts`), 세트 추가·수정·삭제, 행사 상품 제거(`removeProduct`)는 서버 응답을 기다리지 않는다. `App.jsx`의 `mutate`가 `src/sync/queuedCommands.js`의 리듀서로 다음 로컬 상태를 만들고, `stateRepository.commitCommands`가 `posState`와 `orders` 큐 행을 한 IndexedDB 트랜잭션으로 저장한 뒤 화면에 반영한다. 판매·취소와 같은 `orders` 테이블·같은 자동 증가 순번을 쓰므로 `syncService`가 행사 안에서 로컬 발생 순서대로 전송한다. 세트 구성 수정 뒤 그 세트를 판매하면 수정이 먼저 반영되어 `finalizeSale`의 구성 불일치(40001)에 걸리지 않는다. 전송은 기존 30초 주기·연결 복구·화면 복귀·수동 동기화를 따른다.
+
+- 큐 행: `localOrderId = commandId = cfg_<UUID>`, payload는 `{protocolVersion:2, actorId, boothId, projectId, dataRevision, action, commandId, payload}`. 계정·부스·행사 범위 검사는 판매 큐와 같다.
+- 세트 화면의 전체 목록 저장(`persistBundles`)은 `bundleCommands`가 세트별 `saveBundle {bundle, expected}`/`deleteBundle {bundleId, expected}`로 나눈다. `expected`는 이전 이름·가격·구성(신규는 null)이다. 서버 `saveBundle`/`deleteBundle`은 현재 행과 `expected`가 다르면 409로 거절해 다른 기기의 변경을 덮어쓰지 않는다. 신규 세트 번호는 서버가 최대값+1로 정하고, 로컬은 같은 규칙의 임시 번호를 쓰다 동기화 후 서버 값으로 바뀐다. 기존 `replaceBundles` API는 호환용으로 남아 있다.
+- 서버: `pos_command_receipts(project_id,id,fingerprint)`에 `commandId`와 `{action,payload}` 지문을 같은 트랜잭션으로 기록한다. 같은 ID·같은 내용 재전송은 상태만 반환하고, 같은 ID·다른 내용은 409, 큐 대상이 아닌 작업에 `commandId`를 보내면 400이다. 큐 대상 목록은 `api/pos.js`의 `queuedSettingsActions`이며 `configure` 권한으로 검사한다. 직렬화 실패(40001) 응답에는 `retryable:true`가 붙는다.
+- 실패 분류(`syncService.rejectsSettingsCommand`): `commandId`가 있는 명령의 400/403/404/409/422(retryable 제외)는 `REJECTED`로 남기고 재전송하지 않으며 다음 명령은 계속 보낸다. 네트워크·5xx·401·410·retryable 409는 기존처럼 `FAILED`로 보존하고 후속 전송을 멈춘다. 판매·취소의 실패 처리는 바뀌지 않았다. `REJECTED`는 대기 건수·`acceptRemote` 대기 판단에서 제외된다.
+- 거절 시 `useSync`의 `lastRejection`을 받아 오류 배너·토스트를 표시하고 서버 상태를 다시 읽어 `stateRepository.rebaseRemote`로 "서버 상태 + 아직 대기 중인 명령(판매 포함) 재적용"을 저장한다. 이미 서버에 있는 판매 ID는 다시 차감하지 않고, 더 이상 적용되지 않는 대기 설정 명령은 로컬에서 건너뛴다. 조회 중 큐가 바뀌면 재구성을 버린다.
+- 온라인 전용 작업(기본값·상품 일괄 교체·이미지·재고·행사 상품 등록/수정·공유 재고)은 그대로 빈 큐를 요구하되, 먼저 현재 행사 큐를 `sync.syncNow()`로 전송한 뒤 다시 확인한다. `useSync` 전송은 `canSell` 또는 `canConfigure`가 있으면 활성화된다.
+- 세트 순서 변경(`reorderBundles`, PR #102)도 같은 큐로 보낸다. 리듀서는 서버와 같은 `expectedOrder` 검사와 1..n 재번호 규칙을 따른다.
+- 행사 상품 오프라인 등록(`registerEventArtistProduct`)·정보/판매가 수정(`saveEventArtistProduct`)도 큐로 보낸다(`canConfigure` 기기만). 큐 행의 `endpoint`가 `/api/booths`이며 서버의 기존 requestId 영수증으로 재전송이 무효과다. 등록은 클라이언트가 `inventoryId`·`productId`(UUID)를 정해 서버가 그대로 쓰므로, 뒤이어 큐에 들어간 판매가 새 상품 ID를 참조할 수 있다. 같은 ID 재사용은 409, 형식 오류는 400. 재고 조회의 항목 ID(`stock:해시`) 대신 원본 재고 ID로도 항목을 찾는다(`itemFor`, 제작자 범위 안).
+- 오프라인 등록: 기기가 오프라인(`navigator.onLine` false)이고 이미지가 없을 때만 큐에 넣으며, 선택한 제작자와 무관하게 항상 행사의 미지정 제작자로 등록한다(payload에서 `ownerId`·`artistName` 제거). 제작자 참여 종료 등으로 등록이 막혀 뒤의 판매까지 멈추는 일을 피하기 위해서다. 운영자는 동기화 뒤 상품 상세의 제작자 연결로 정리한다. 온라인 등록은 선택한 제작자로 서버에 바로 저장한다.
+- 오프라인 허용 범위(행사 상품): 이름·종류·캐릭터·장르·판매가 수정, 등록(이미지 없이), 행사에서 제거. 배정 수량·총재고·이미지·제작자 연결은 다른 행사 재고나 정산 귀속에 영향을 주므로 온라인 전용(로스 기록은 이번 범위에서 다루지 않음).
+- 동기화 기준은 행사 기기의 변경이다: 큐의 상품 수정은 `latest:true`로 보내 서버의 현재 재고 버전에 적용한다(개인 재고 화면의 사이 수정보다 우선). 온라인 수정은 기존처럼 버전을 검사한다. 내 재고관리에서 판매 중(보관·정산 마감 전)인 행사에 배정된 상품 정보를 저장하면 변경이 저장되지 않을 수 있다는 alert를 띄운 뒤 저장한다. 종료된 행사는 경고하지 않는다.
+- 동기화 전 상품은 `pendingSync` 표시로 상품 관리 목록에 로컬 값으로 보이고(`withLocalEventProducts`), 이미지·재고 배정 변경은 동기화 뒤에만 가능하다. 온라인 상태의 등록·이미지와 함께 등록·이미지로 일괄 추가·재고 배정 변경·참여 제작자의 등록은 서버로 바로 보낸다.
+- 순서 변경 권한: `eventPermissions`에 `canReorder`(운영자 owner/manager와 부운영자 assistant)를 두고 서버는 `reorderProducts`/`reorderBundles`를 `reorder` 권한으로 검사한다. 부스참여자(seller)·참여 제작자는 순서를 바꿀 수 없으며 화면의 순서 변경 토글도 `canReorder`로만 표시한다.
+- 확장: 새 설정 작업은 `settingsReducers`에 순수 리듀서를, 서버 영수증(`queuedSettingsActions` 또는 해당 API의 requestId)을 추가하고, `/api/pos` 밖이면 `queuedEndpoint`에 경로를 지정한다.

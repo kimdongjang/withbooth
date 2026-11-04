@@ -690,6 +690,50 @@ test('event product direct artist and administrator choices register atomically,
 });
 
 
+test('queued offline registration keeps client IDs for later sales; queued edits win over personal edits; reorder is operator/assistant only',async()=>{
+ const f=await fixture();try{
+  const {boothId}=await f.migrate();
+  const ids={inventoryId:crypto.randomUUID(),productId:crypto.randomUUID()};
+  const payload={boothId,projectId:f.event,artistName:'오프라인 작가',name:'오프라인 상품',goodsType:'키링',price:1500,quantity:5,requestId:crypto.randomUUID(),...ids};
+  const registered=await f.invoke('booths','registerEventArtistProduct',payload);assert.equal(registered.status,200,JSON.stringify(registered.body));
+  assert.equal(registered.body.inventory.inventoryId,ids.inventoryId);assert.equal(registered.body.inventory.allocations[0].productId,ids.productId);
+  assert.equal((await f.invoke('booths','registerEventArtistProduct',payload)).status,200,'a resend of the same queued registration is a no-op');
+  assert.equal((await f.sql`SELECT COUNT(*)::int AS n FROM pos_inventory WHERE id=${ids.inventoryId}`).rows[0].n,1);
+  assert.equal((await f.invoke('booths','registerEventArtistProduct',{...payload,requestId:crypto.randomUUID()})).status,409,'client IDs cannot be reused');
+  assert.equal((await f.invoke('booths','registerEventArtistProduct',{...payload,productId:'not-a-uuid',requestId:crypto.randomUUID()})).status,400);
+  // A sale queued right after the offline registration references the client product ID.
+  const sale={protocolVersion:2,actorId:'a',boothId,action:'finalizeSale',projectId:f.event,payload:{localOrderId:'offline-new-sale',method:'cash',total:1500,cart:[{type:'product',id:ids.productId,name:'오프라인 상품',unitPrice:1500,qty:1}]}};
+  assert.equal((await f.invoke('pos','finalizeSale',{},'a',{body:sale})).status,200);
+  let item=(await f.invoke('booths',null,{},'a',{query:{artists:'stock',ownerId:registered.body.inventory.ownerId,boothId,projectId:f.event}})).body.inventory.find(p=>p.inventoryId===ids.inventoryId);
+  // Personal inventory edits the product meanwhile; the event device's queued edit still applies.
+  assert.equal((await f.invoke('booths','saveArtistProduct',{ownerId:item.ownerId,boothId,id:item.id,version:item.version,product:{...item,name:'개인 수정'},requestId:crypto.randomUUID()})).status,200);
+  // The device that registered offline only knows the raw inventory ID.
+  const edit={ownerId:item.ownerId,boothId,id:ids.inventoryId,projectId:f.event,version:item.version,product:{name:'행사 수정',goodsType:'키링',vtuberName:'',genre:'',creatorName:item.creatorName,price:1800},requestId:crypto.randomUUID()};
+  assert.equal((await f.invoke('booths','saveEventArtistProduct',edit)).status,409,'an online edit still checks the version');
+  const queued=await f.invoke('booths','saveEventArtistProduct',{...edit,latest:true});assert.equal(queued.status,200,JSON.stringify(queued.body));
+  assert.equal(queued.body.inventory.name,'행사 수정');assert.equal(queued.body.inventory.allocations.find(a=>a.projectId===f.event).price,1800);
+  // Offline registrations are queued under the event's unassigned creator, so a creator whose
+  // participation ended meanwhile cannot block it or the sales queued behind it.
+  await f.sql`UPDATE pos_event_artists SET status='ended' WHERE project_id=${f.event} AND owner_id=${registered.body.inventory.ownerId}`;
+  const lateIds={inventoryId:crypto.randomUUID(),productId:crypto.randomUUID()};
+  const kept=await f.invoke('booths','registerEventArtistProduct',{boothId,projectId:f.event,name:'늦은 상품',goodsType:'키링',price:1000,quantity:2,requestId:crypto.randomUUID(),...lateIds});assert.equal(kept.status,200,JSON.stringify(kept.body));
+  assert.ok(kept.body.inventory.ownerId.startsWith('unassigned-owner:'));assert.equal(kept.body.inventory.allocations[0].productId,lateIds.productId);
+  const lateSale={...sale,payload:{localOrderId:'offline-late-sale',method:'cash',total:1000,cart:[{type:'product',id:lateIds.productId,name:'늦은 상품',unitPrice:1000,qty:1}]}};
+  assert.equal((await f.invoke('pos','finalizeSale',{},'a',{body:lateSale})).status,200,'the sale queued behind it applies');
+  // Sale/set order changes: operators and assistants only.
+  const bundles=[{id:'s1',name:'S1',price:0,items:[{productId:ids.productId,qty:1}]},{id:'s2',name:'S2',price:0,items:[{productId:ids.productId,qty:1}]}];
+  for(const bundle of bundles)assert.equal((await f.invoke('pos','saveBundle',{},'a',{body:{boothId,action:'saveBundle',projectId:f.event,commandId:`cfg_${bundle.id}`,payload:{bundle,expected:null}}})).status,200);
+  const move={boothId,action:'reorderBundles',projectId:f.event,commandId:'cfg_move',payload:{bundleId:'s2',bundleNumber:1,expectedOrder:['s1','s2']}};
+  await f.invoke('booths','saveEventAccess',{projectId:f.event,boothId,targetUserId:'b',role:'seller',status:'active',version:0,requestId:crypto.randomUUID()});
+  assert.equal((await eventAccess.eventPermissions(f.sql,'b',f.event)).permissions.canReorder,false);
+  assert.equal((await f.invoke('pos','reorderBundles',{},'b',{body:move})).status,403);
+  assert.equal((await eventAccess.eventPermissions(f.sql,'a',f.event)).permissions.canReorder,true);
+  const moved=await f.invoke('pos','reorderBundles',{},'a',{body:move});assert.equal(moved.status,200,JSON.stringify(moved.body));
+  assert.deepEqual(moved.body.bundles.map(b=>[b.id,b.bundleNumber]),[['s2',1],['s1',2]]);
+  assert.equal((await f.invoke('pos','reorderBundles',{},'a',{body:move})).status,200,'a resent set reorder is a no-op, not a stale-order conflict');
+ }finally{await f.db.close();}
+});
+
 test('event detail saves original fields and event-only price atomically and scopes loss history',async()=>{
  const f=await fixture();try{
   const {boothId}=await f.migrate();
@@ -746,9 +790,9 @@ test('event manager searches and links an unlinked artist, counts products and a
   assert.equal(refreshed.body.profiles.find(p=>p.id===profile.id).avatar,'data:image/png;base64,YQ==');
   assert.equal(refreshed.body.profiles.find(p=>p.id===profile.id).email,undefined);
   let access=await f.invoke('booths','saveEventAccess',{projectId:f.event,boothId,targetUserId:'b',role:'seller',status:'active',version:0,requestId:crypto.randomUUID()});assert.equal(access.status,200,JSON.stringify(access.body));
-  let permission=await eventAccess.eventPermissions(f.sql,'b',f.event);assert.equal(permission.permissions.canSell,false);assert.equal(permission.permissions.canViewPos,true);assert.equal(permission.permissions.canConfigure,false);assert.equal(permission.permissions.canManage,false);
+  let permission=await eventAccess.eventPermissions(f.sql,'b',f.event);assert.equal(permission.permissions.canSell,false);assert.equal(permission.permissions.canReorder,false);assert.equal(permission.permissions.canViewPos,true);assert.equal(permission.permissions.canConfigure,false);assert.equal(permission.permissions.canManage,false);
   access=await f.invoke('booths','saveEventAccess',{projectId:f.event,boothId,targetUserId:'b',role:'assistant',status:'active',version:1,requestId:crypto.randomUUID()});assert.equal(access.status,200);
-  permission=await eventAccess.eventPermissions(f.sql,'b',f.event);assert.equal(permission.permissions.canConfigure,true);assert.equal(permission.permissions.canManage,false);
+  permission=await eventAccess.eventPermissions(f.sql,'b',f.event);assert.equal(permission.permissions.canConfigure,true);assert.equal(permission.permissions.canReorder,true,'assistants may change sale/set order');assert.equal(permission.permissions.canManage,false);
   assert.equal((await f.invoke('booths',null,{},'b',{query:search})).status,403);
   const extra=await f.invoke('booths','registerEventArtistProduct',{projectId:f.event,boothId,artistName:'역할 작가',name:'권한 상품',goodsType:'키링',quantity:0,price:0,requestId:crypto.randomUUID()});assert.equal(extra.status,200);
   const extraProfile=(await f.sql`SELECT id FROM pos_stock_owners WHERE id=${extra.body.inventory.ownerId}`).rows[0];

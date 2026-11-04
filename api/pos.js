@@ -7,6 +7,11 @@ import { sql as pool } from '@vercel/postgres';
 import { assertPostgresConnectionString, requireAuth, hashPassword, validateAdminPassword } from './lib/auth.js';
 import { CURRENT_SEED_VERSION, getDefaultBundles, getDefaultProducts } from './lib/defaultData.js';
 
+// Settings changes a client may queue offline (src/sync/queuedCommands.js).
+// Each carries commandId and is recorded in pos_command_receipts. Add an action
+// here (and its reducer on the client) to queue it, e.g. reorderBundles.
+const queuedSettingsActions = ['reorderProducts', 'reorderBundles', 'removeProduct', 'saveBundle', 'deleteBundle'];
+
 export function createHandler(sql, context = null) {
 const checkPassword = (adminId, password, connection) => validateAdminPassword(context?.actorId || adminId, password, connection);
 const uid = () => globalThis.crypto.randomUUID();
@@ -76,6 +81,12 @@ async function initDb() {
   await sql`CREATE TABLE IF NOT EXISTS pos_sale_receipts (
     project_id TEXT NOT NULL REFERENCES pos_projects(id) ON DELETE CASCADE,
     id TEXT NOT NULL, voided BOOLEAN NOT NULL DEFAULT FALSE,
+    PRIMARY KEY(project_id, id)
+  )`;
+  // Queued settings changes (commandId) apply once; a resend with the same body is a no-op.
+  await sql`CREATE TABLE IF NOT EXISTS pos_command_receipts (
+    project_id TEXT NOT NULL REFERENCES pos_projects(id) ON DELETE CASCADE,
+    id TEXT NOT NULL, fingerprint TEXT NOT NULL, created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
     PRIMARY KEY(project_id, id)
   )`;
   // Upgrade pre-project tables atomically. Unowned legacy rows stay NULL and
@@ -714,6 +725,36 @@ async function replaceBundles(adminId, projectId, bundles) {
   await sql`UPDATE pos_projects SET updated_at = NOW() WHERE id = ${projectId}`;
 }
 
+const bundleItems = items => (items || []).map(item => ({ productId: item.productId, qty: Number(item.qty) }));
+const sameBundle = (row, expected) => (!row || !expected) ? !row && !expected
+  : JSON.stringify({ name: row.name, price: Number(row.price), items: bundleItems(row.items) }) === JSON.stringify({ name: expected.name, price: Number(expected.price), items: bundleItems(expected.items) });
+const bundleConflict = () => Object.assign(new Error('다른 기기에서 세트가 변경되었습니다. 최신 세트를 확인한 뒤 다시 수정해주세요.'), { status: 409 });
+
+// One set per command with the expected previous value, so queued edits never
+// overwrite another device's change to the same or a different set.
+async function saveBundle(projectId, { bundle, expected } = {}) {
+  const valid = bundle && typeof bundle.id === 'string' && bundle.id.length > 0 && bundle.id.length <= 100 && typeof bundle.name === 'string' && bundle.name.trim() && bundle.name.trim().length <= 100
+    && Number.isSafeInteger(bundle.price) && bundle.price >= 0 && bundle.price <= 2147483647 && Array.isArray(bundle.items) && bundle.items.length > 0 && bundle.items.length <= 100
+    && bundle.items.every(item => typeof item?.productId === 'string' && item.productId && Number.isSafeInteger(item.qty) && item.qty > 0);
+  if (!valid) throw Object.assign(new Error('세트 이름, 0원 이상의 정수 판매가, 구성품과 양의 정수 수량을 입력해주세요.'), { status: 400 });
+  await ensureBundleNumbers(projectId);
+  const current = (await sql`SELECT name, price, items FROM pos_bundles WHERE project_id = ${projectId} AND id = ${bundle.id}`).rows[0];
+  if (!sameBundle(current, expected)) throw bundleConflict();
+  const items = JSON.stringify(bundleItems(bundle.items));
+  if (current) await sql`UPDATE pos_bundles SET name = ${bundle.name.trim()}, price = ${bundle.price}, items = ${items}::jsonb WHERE project_id = ${projectId} AND id = ${bundle.id}`;
+  else await sql`INSERT INTO pos_bundles (project_id, id, name, price, items, bundle_number) SELECT ${projectId}, ${bundle.id}, ${bundle.name.trim()}, ${bundle.price}, ${items}::jsonb, COALESCE(MAX(bundle_number), 0) + 1 FROM pos_bundles WHERE project_id = ${projectId}`;
+  await sql`UPDATE pos_projects SET updated_at = NOW() WHERE id = ${projectId}`;
+}
+
+async function deleteBundle(projectId, { bundleId, expected } = {}) {
+  if (typeof bundleId !== 'string' || !bundleId) throw Object.assign(new Error('삭제할 세트를 확인해주세요.'), { status: 400 });
+  const current = (await sql`SELECT name, price, items FROM pos_bundles WHERE project_id = ${projectId} AND id = ${bundleId}`).rows[0];
+  if (!current) return;
+  if (!sameBundle(current, expected)) throw bundleConflict();
+  await sql`DELETE FROM pos_bundles WHERE project_id = ${projectId} AND id = ${bundleId}`;
+  await sql`UPDATE pos_projects SET updated_at = NOW() WHERE id = ${projectId}`;
+}
+
 async function finalizeSale(adminId, projectId, { localOrderId, createdAt, method, total, cart }) {
   await assertProject(adminId, projectId);
   if (!Array.isArray(cart) || !cart.length) throw new Error('장바구니가 비어 있습니다.');
@@ -1121,6 +1162,14 @@ async function handler(req, res) {
       const revision = await dataRevision(projectId);
       if (revision && req.body?.dataRevision !== revision) return res.status(409).json({ error: '행사 데이터가 분리되었습니다. 새로고침 후 다시 진행해주세요.' });
     }
+    const commandId = req.body?.commandId;
+    const fingerprint = JSON.stringify({ action, payload });
+    if (commandId !== undefined) {
+      if (!queuedSettingsActions.includes(action) || typeof commandId !== 'string' || !/^[A-Za-z0-9_-]{1,100}$/.test(commandId)) return res.status(400).json({ error: '설정 변경 요청 ID를 확인해주세요.' });
+      const prior = (await sql`SELECT fingerprint FROM pos_command_receipts WHERE project_id = ${projectId} AND id = ${commandId}`).rows[0];
+      if (prior && prior.fingerprint !== fingerprint) return res.status(409).json({ error: '같은 설정 변경 요청의 내용이 다릅니다.' });
+      if (prior) return res.status(200).json(await readState(admin.id, projectId));
+    }
     if (action === 'resetDefaults') {
       const linked = (await sql`SELECT p.*, l.inventory_id FROM pos_products p JOIN pos_inventory_links l ON l.project_id=p.project_id AND l.product_id=p.id WHERE p.project_id=${projectId}`).rows.filter(p => p.inventory_id);
       if (linked.length) return res.status(409).json({ error: '공통 재고에 연결된 행사는 기본값으로 초기화할 수 없습니다.' });
@@ -1136,15 +1185,18 @@ async function handler(req, res) {
     else if (action === 'replaceProducts') await replaceProducts(admin.id, projectId, payload.products || []);
     else if (action === 'updateProductImage') await updateProductImage(admin.id, projectId, payload);
     else if (action === 'replaceBundles') await replaceBundles(admin.id, projectId, payload.bundles || []);
+    else if (action === 'saveBundle') await saveBundle(projectId, payload);
+    else if (action === 'deleteBundle') await deleteBundle(projectId, payload);
     else if (action === 'finalizeSale') await finalizeSale(admin.id, projectId, payload || {});
     else if (action === 'voidSale') await voidSale(admin.id, projectId, payload.id);
     else if (action === 'clearSales') await clearSales(admin.id, projectId, payload.password);
     else if (action === 'resetDefaults') await seedProject(admin.id, projectId);
     else if (action === 'upsertDefaults') await addMissingDefaults(admin.id, projectId);
     else return res.status(400).json({ error: '알 수 없는 작업입니다.' });
+    if (commandId !== undefined) await sql`INSERT INTO pos_command_receipts (project_id, id, fingerprint) VALUES (${projectId}, ${commandId}, ${fingerprint})`;
     return res.status(200).json(await readState(admin.id, projectId));
   } catch (error) {
-    return res.status(error.code === '40001' ? 409 : (error.status || 500)).json({ error: error.code === '40001' ? '프로젝트가 변경되었습니다. 새로고침 후 다시 시도해주세요.' : error.message || '서버 오류가 발생했습니다.' });
+    return res.status(error.code === '40001' ? 409 : (error.status || 500)).json({ error: error.code === '40001' ? '프로젝트가 변경되었습니다. 새로고침 후 다시 시도해주세요.' : error.message || '서버 오류가 발생했습니다.', ...(error.code === '40001' ? { retryable: true } : {}) });
   }
 }
 handler.initDb = initDb;
@@ -1182,9 +1234,9 @@ export default async function transactionalHandler(req, res) {
       const eventId=req.query?.projectId||req.body?.projectId||req.body?.payload?.projectId;
       const accessTables=(await sql`SELECT to_regclass('pos_event_staff') AS name`).rows[0]?.name;
       const action=req.body?.action;
-      const configuration=['replaceProducts','replaceBundles','reorderProducts','reorderBundles','removeProduct','saveEventProduct'];
+      const configuration=['replaceProducts','replaceBundles','reorderProducts','removeProduct','saveEventProduct',...queuedSettingsActions];
       if(eventId&&accessTables) {
-        const capability=req.method==='GET'?'pos':['finalizeSale','voidSale'].includes(action)?'sell':configuration.includes(action)?'configure':'manage';
+        const capability=req.method==='GET'?'pos':['finalizeSale','voidSale'].includes(action)?'sell':['reorderProducts','reorderBundles'].includes(action)?'reorder':configuration.includes(action)?'configure':'manage';
         const deleted=action==='deleteProject'&&(await sql`SELECT id FROM pos_projects WHERE id=${eventId} AND deleted_at IS NOT NULL`).rows.length;
         booth=deleted?await authorizeBooth(sql,actor.id,requestedBooth||defaultBooth.id,'owner'):await authorizeEvent(sql,actor.id,eventId,capability,requestedBooth||defaultBooth?.id);
         if(action==='deleteProject')await authorizeBooth(sql,actor.id,booth.id,'owner');
@@ -1257,6 +1309,6 @@ export default async function transactionalHandler(req, res) {
     return res.status(status).json(body);
   } catch (error) {
     if (client) await client.query('ROLLBACK').catch(() => {});
-    return res.status(error.code === '40001' ? 409 : (error.status || 500)).json({ error: error.code === '40001' ? '프로젝트가 변경되었습니다. 새로고침 후 다시 시도해주세요.' : error.status ? error.message : '프로젝트 작업에 실패했습니다. 다시 시도해주세요.' });
+    return res.status(error.code === '40001' ? 409 : (error.status || 500)).json({ error: error.code === '40001' ? '프로젝트가 변경되었습니다. 새로고침 후 다시 시도해주세요.' : error.status ? error.message : '프로젝트 작업에 실패했습니다. 다시 시도해주세요.', ...(error.code === '40001' ? { retryable: true } : {}) });
   } finally { client?.release(); }
 }

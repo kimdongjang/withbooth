@@ -41,20 +41,43 @@ export const stateRepository = {
   },
   // Both stores commit together; a stale tab must reload instead of overwriting sales.
   async commitOrder(projectId: string, order: Omit<StoredOrder, 'id'>, expected: PosStateCache, next: PosStateCache): Promise<void> {
+    await this.commitCommands(projectId, [order], expected, next);
+  },
+  // Sales, cancellations and queued settings changes share one ordered queue, so
+  // the server receives them in the order they happened on this device.
+  async commitCommands(projectId: string, commands: Omit<StoredOrder, 'id'>[], expected: PosStateCache, next: PosStateCache): Promise<void> {
     await db.transaction('rw', db.orders, db.posState, async () => {
       const current = await this.get(projectId);
-      if(order.actorId && current?.actorId!==order.actorId) throw new Error('주문 계정과 저장된 행사 계정이 다릅니다. 온라인에서 다시 불러와주세요.');
-      const payload=order.payload as {actorId?:string;boothId?:string|null};
-      if(order.actorId && (payload.actorId!==order.actorId || (payload.boothId || null)!==(order.boothId || null))) throw new Error('주문 계정 또는 부스 범위가 일치하지 않습니다.');
-      if (((current as PosStateCache | null)?.archivedAt || (current as PosStateCache | null)?.settlementClosedAt)) throw new Error('보관되었거나 정산이 마감된 행사에서는 판매·취소할 수 없습니다.');
+      for (const order of commands) {
+        if(order.actorId && current?.actorId!==order.actorId) throw new Error('주문 계정과 저장된 행사 계정이 다릅니다. 온라인에서 다시 불러와주세요.');
+        const payload=order.payload as {actorId?:string;boothId?:string|null};
+        if(order.actorId && (payload.actorId!==order.actorId || (payload.boothId || null)!==(order.boothId || null))) throw new Error('주문 계정 또는 부스 범위가 일치하지 않습니다.');
+      }
+      if (((current as PosStateCache | null)?.archivedAt || (current as PosStateCache | null)?.settlementClosedAt)) throw new Error('보관되었거나 정산이 마감된 행사에서는 판매·취소·설정 변경을 할 수 없습니다.');
       for (const key of ['products', 'bundles', 'sales', 'dataRevision'] as const) {
         if (JSON.stringify(current?.[key]) !== JSON.stringify(expected[key])) {
           throw new Error('다른 탭에서 행사 데이터가 변경되었습니다. 새로고침 후 다시 시도해주세요.');
         }
       }
-      if (order.projectId !== projectId || (order.payload as { projectId?: string })?.projectId !== projectId) throw new Error('주문 행사 범위가 일치하지 않습니다.');
-      await db.orders.add({ ...order });
+      for (const order of commands) {
+        if (order.projectId !== projectId || (order.payload as { projectId?: string })?.projectId !== projectId) throw new Error('주문 행사 범위가 일치하지 않습니다.');
+      }
+      for (const order of commands) await db.orders.add({ ...order });
       await this.save(projectId, {...current,...next});
+    });
+  },
+  // After a rejected settings change: the server state plus every command still
+  // waiting, replayed in queue order. A queue change during the read wins.
+  async rebaseRemote(projectId: string, state: PosStateCache, queueVersion: string, replay: (state: PosStateCache, bodies: unknown[]) => PosStateCache): Promise<PosStateCache | null> {
+    return db.transaction('rw', db.orders, db.posState, async () => {
+      if (queueVersion !== await this.queueVersion(projectId)) return null;
+      const cached = await this.get(projectId);
+      if (state.actorId && cached && ((cached.actorId && cached.actorId !== state.actorId) || (!cached.actorId && state.legacyActorId !== state.actorId))) throw new Error('미전송 주문의 원래 계정에서 동기화해주세요.');
+      const waiting = (await db.orders.where('projectId').equals(projectId).sortBy('id'))
+        .filter(order => ['PENDING', 'FAILED', 'SYNCING'].includes(order.syncStatus));
+      const next = replay(state, waiting.map(order => order.payload));
+      await this.save(projectId, next);
+      return next;
     });
   },
   async setArchivedAt(projectId: string, archivedAt: string | null): Promise<void> {
