@@ -2276,17 +2276,37 @@ body:has(.api-read-indicator) .loading-state{visibility:hidden}
 
 /* Settlement: one frame per section — heading and table share a single box. */
 #root .event-settlement-panel.settlement-card{border:0;border-radius:0;padding:0;background:transparent}
-#root .event-settlement-panel :is(.event-cost-card,.event-settlement-report)>.account-card-body{padding:0}
+#root .event-settlement-panel :is(.event-cost-card,.event-settlement-report)>.account-card-body{padding:0;gap:0}
 #root .event-settlement-panel :is(.event-cost-table-wrap,.event-settlement-report-scroll){border:0;border-radius:0}
 #root .event-settlement-panel .event-settlement-totals{padding:16px var(--event-content-space,20px)}
 
 /* Signup privacy consent. */
 .auth-privacy{margin-bottom:12px;padding:12px;border:1px solid #e2e8f0;border-radius:8px;background:#f8fafc;font-size:13px}
-.auth-privacy-check{display:flex;align-items:flex-start;gap:8px;font-weight:700;cursor:pointer}
-.auth-privacy-check input{flex:0 0 16px;width:16px;height:16px;margin:2px 0 0}
+.auth-privacy-check{display:flex;align-items:center;gap:8px;font-weight:700;cursor:pointer}
+.auth-privacy-check input{flex:0 0 16px;width:16px;height:16px;margin:0}
 .auth-privacy-policy{margin-top:8px}
 .auth-privacy-policy summary{cursor:pointer;color:#526078;text-decoration:underline;text-underline-offset:4px}
 .auth-privacy-policy dl{display:grid;gap:8px;margin:8px 0 0;padding-top:8px;border-top:1px solid #e2e8f0;line-height:1.6}
 .auth-privacy-policy dt{font-weight:700}
 .auth-privacy-policy dd{margin:0;color:#334155;overflow-wrap:anywhere}
 .auth-privacy-policy a,.auth-password-help p a{color:#2563eb;overflow-wrap:anywhere}
+
+/* Compact row actions in the event participant table. */
+#root .event-participant-table .event-participant-actions :is(.management-back,.management-delete){min-height:32px;padding:4px 10px;font-size:13px;line-height:1.4}
+#root .event-participant-table .event-participant-actions .management-delete{border:1px solid #fecaca;background:#fff}
+
+/* Nickname form: input and a content-sized save button stay on one row. */
+#root .account-page .account-profile-form{grid-template-columns:minmax(0,1fr) auto;align-items:end;gap:8px}
+#root .account-page .account-profile-form>button{width:auto;justify-self:end;min-height:var(--search-filter-height);padding:6px 14px;font-size:14px;white-space:nowrap}
+
+/* Set detail: number tag beside the title, edit/delete actions. */
+.bundle-detail-title{display:flex;align-items:center;gap:8px;min-width:0}
+.bundle-detail-title>h3{min-width:0;overflow-wrap:anywhere}
+.bundle-detail-actions{display:flex;align-items:center;gap:8px;flex-shrink:0}
+
+/* Set components under set names in the sales catalog and order list. */
+.bundle-card-items,.order-bundle-items{display:grid;gap:2px;margin:6px 0 0;padding:0;list-style:none;font-size:12px;color:#475569}
+.bundle-card-items li,.order-bundle-items li{display:flex;justify-content:space-between;gap:8px;min-width:0}
+.bundle-card-items li>span:first-child,.order-bundle-items li>span:first-child{min-width:0;overflow-wrap:anywhere}
+.bundle-card-items li>span:last-child,.order-bundle-items li>span:last-child{flex-shrink:0;color:#64748b}
+.order-bundle-items{margin:4px 0 2px}

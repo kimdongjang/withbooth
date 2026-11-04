@@ -724,6 +724,8 @@ test('event manager searches and links an unlinked artist, counts products and a
   const query={workspace:'access',projectId:f.event,boothId};
   const view=await f.invoke('booths',null,{},'a',{query});assert.equal(view.status,200,JSON.stringify(view.body));
   const profile=view.body.profiles.find(p=>!p.linked_user_id&&p.status==='active');assert.ok(profile);assert.equal(profile.product_count,1);
+  // Backfilled participation rows have no join time; the view falls back to the event creation date.
+  assert.ok(view.body.profiles.filter(p=>p.status==='active').every(p=>p.joined_at),JSON.stringify(view.body.profiles));
   const search={workspace:'searchAccounts',projectId:f.event,boothId,q:'찾을'};
   const found=await f.invoke('booths',null,{},'a',{query:search});assert.equal(found.status,200,JSON.stringify(found.body));assert.equal(found.body.accounts[0].id,'b');assert.equal(found.body.accounts[0].email,undefined);
   assert.equal((await f.invoke('booths',null,{},'c',{query:search})).status,403);

@@ -455,7 +455,7 @@ export async function registerEventArtistProduct(sql,userId,payload) {
    WHERE o.id=${ownerId} AND m.booth_id=${boothId} AND m.status='active' AND m.role IN ('owner','manager')`).rows[0];
   if(!profile&&!admin)fail('행사에 등록된 제작자 또는 관리자를 선택해주세요.',403);
   await sql`INSERT INTO pos_booth_artists(booth_id,owner_id,status) VALUES(${boothId},${ownerId},'active') ON CONFLICT DO NOTHING`;
-  await sql`INSERT INTO pos_event_artists(project_id,owner_id) VALUES(${projectId},${ownerId})`;
+  await sql`INSERT INTO pos_event_artists(project_id,owner_id,joined_at) VALUES(${projectId},${ownerId},NOW())`;
  }
  const key=hash({requestId,action:'createArtistStock'});
  const stockRequestId=`${key.slice(0,8)}-${key.slice(8,12)}-${key.slice(12,16)}-${key.slice(16,20)}-${key.slice(20,32)}`;

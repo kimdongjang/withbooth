@@ -4,7 +4,7 @@ import { Input, ProductImage } from '../components/PosUI';
 import { won, creatorNameOf, productNameWithoutCreator } from '../utils/productDisplay';
 import { managementBundleStock } from '../utils/managementQuantities';
 
-export default function BundleCreatePage({ readOnly, saving, products, bundleName, setBundleName, bundleRows, setBundleRows, bundlePrice, setBundlePrice, onSave, onBack }) {
+export default function BundleCreatePage({ readOnly, saving, products, bundleName, setBundleName, bundleRows, setBundleRows, bundlePrice, setBundlePrice, onSave, onBack, title = '새 세트 등록', backLabel = '← 세트 목록으로', submitLabel = '세트 저장' }) {
   const [search, setSearch] = useState('');
   const [busy, setBusy] = useState(false);
   const submitting = useRef(false);
@@ -22,7 +22,7 @@ export default function BundleCreatePage({ readOnly, saving, products, bundleNam
     try { await onSave(); } finally { submitting.current = false; setBusy(false); }
   };
   return <main className="page-content settings-page">
-    <PageIntro title="새 세트 등록" actions={<button type="button" disabled={saving || busy} className="management-back" onClick={onBack}>← 세트 목록으로</button>} />
+    <PageIntro title={title} actions={<button type="button" disabled={saving || busy} className="management-back" onClick={onBack}>{backLabel}</button>} />
     <form className="settings-content product-management" onSubmit={submit}>
       <fieldset disabled={readOnly || saving || busy} className="min-w-0">
         <article className="management-product">
@@ -54,7 +54,7 @@ export default function BundleCreatePage({ readOnly, saving, products, bundleNam
               })}</ul>
               <dl className="bundle-totals"><div><dt>단품 합계</dt><dd>{validQuantities ? `${won(subtotal)}원` : '—'}</dd></div><div><dt>세트 판매가</dt><dd>{bundlePrice === '' ? '—' : `${won(bundlePrice)}원`}</dd></div><div><dt>판매 가능 수량</dt><dd>{validQuantities && selected.length ? `${won(managementBundleStock({ items: selected }, products))}세트` : '—'}</dd></div></dl>
               <p className="management-note">구성품의 재고를 공유하며, 세트 판매 시 지정한 수량만큼 차감됩니다.</p>
-              <button type="submit" className="management-add" disabled={!selected.length || !validQuantities}>{saving || busy ? '저장 중…' : '세트 저장'}</button>
+              <button type="submit" className="management-add" disabled={!selected.length || !validQuantities}>{saving || busy ? '저장 중…' : submitLabel}</button>
             </aside>
           </div>
         </article>

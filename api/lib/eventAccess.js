@@ -107,7 +107,7 @@ export async function authorizeEvent(sql,userId,projectId,capability='read',boot
 export async function eventAccessView(sql,userId,{projectId,boothId}) {
   const event=await authorizeEvent(sql,userId,projectId,'manage',boothId);
   const profiles=(await sql`SELECT o.id,o.id AS owner_id,o.linked_user_id,o.display_name,a.status AS booth_status,
-    e.status,e.version,e.requested_role,e.joined_at,u.nickname,u.avatar,COALESCE(o.origin_booth_id=${event.booth_id} AND o.link_status='linked' AND o.linked_user_id IS NOT NULL,FALSE) AS can_unlink,(SELECT m.role FROM pos_booth_members m WHERE m.booth_id=${event.booth_id} AND m.user_id=o.linked_user_id AND m.status='active') AS booth_role,(SELECT COUNT(*)::int FROM pos_event_product_identities i JOIN pos_products prod ON prod.project_id=i.project_id AND prod.id=i.product_id
+    e.status,e.version,e.requested_role,COALESCE(e.joined_at,(SELECT created_at FROM pos_projects WHERE id=${projectId})) AS joined_at,u.nickname,u.avatar,COALESCE(o.origin_booth_id=${event.booth_id} AND o.link_status='linked' AND o.linked_user_id IS NOT NULL,FALSE) AS can_unlink,(SELECT m.role FROM pos_booth_members m WHERE m.booth_id=${event.booth_id} AND m.user_id=o.linked_user_id AND m.status='active') AS booth_role,(SELECT COUNT(*)::int FROM pos_event_product_identities i JOIN pos_products prod ON prod.project_id=i.project_id AND prod.id=i.product_id
       WHERE i.project_id=${projectId} AND i.owner_id=o.id AND prod.is_active IS DISTINCT FROM FALSE) AS product_count FROM pos_booth_artists a JOIN pos_stock_owners o ON o.id=a.owner_id
     LEFT JOIN pos_admins u ON u.id=o.linked_user_id LEFT JOIN pos_event_artists e ON e.owner_id=o.id AND e.project_id=${projectId}
     WHERE a.booth_id=${event.booth_id} ORDER BY o.id`).rows;
@@ -134,7 +134,7 @@ export async function saveEventAccess(sql,userId,payload) {
     }
     if(status==='ended'&&(await sql`SELECT p.id FROM pos_products p JOIN pos_event_product_identities i ON i.project_id=p.project_id AND i.product_id=p.id
       WHERE p.project_id=${projectId} AND i.owner_id=${ownerId} AND COALESCE(p.stock_qty,p.stock)>0 LIMIT 1`).rows.length)fail('행사 잔여 재고를 먼저 회수해주세요.',409);
-    await sql`INSERT INTO pos_event_artists(project_id,owner_id,status,version,requested_role) VALUES(${projectId},${ownerId},${status},${version+1},${role??previous?.requested_role??null})
+    await sql`INSERT INTO pos_event_artists(project_id,owner_id,status,version,requested_role,joined_at) VALUES(${projectId},${ownerId},${status},${version+1},${role??previous?.requested_role??null},NOW())
       ON CONFLICT(project_id,owner_id) DO UPDATE SET status=EXCLUDED.status,version=EXCLUDED.version,requested_role=EXCLUDED.requested_role`;
     if(status==='ended')await sql`UPDATE pos_event_staff SET status='ended',version=version+1 WHERE project_id=${projectId} AND user_id IN
       (SELECT linked_user_id FROM pos_stock_owners WHERE id=${ownerId} AND linked_user_id IS NOT NULL)`;
