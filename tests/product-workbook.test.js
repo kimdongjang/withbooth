@@ -8,7 +8,7 @@ test('example XLSX contains linked workbook, named columns, zero-safe input sche
  const sheet=strFromU8(files['xl/worksheets/sheet1.xml']);
  for(const [,name] of columns)assert.ok(sheet.includes(`<t>${name}</t>`));
  assert.equal((sheet.match(/<row /g)||[]).length,2);
- assert.equal((sheet.match(/<c /g)||[]).length,16);
+ assert.equal((sheet.match(/<c /g)||[]).length,12);
  assert.ok(strFromU8(files['xl/_rels/workbook.xml.rels']).includes('worksheets/sheet1.xml'));
  assert.ok(!sheet.includes('<f>'));assert.ok(sheet.includes('width="22"'));
 });

@@ -85,7 +85,7 @@ App의 훅 호출 위치와 React/React DOM 19.2.7의 버전 일치는 확인했
 - `backupAccount`/`restoreAccount`는 **같은 계정 전체**의 행사·공통 상품·창고 수량·배정 연결·상품/세트·판매 스냅샷·판매 영수증·입고 원장·이동 영수증·로스 기록·정산·분리 원본을 백업/교체한다. 인증 정보와 IndexedDB 큐 및 이미지 파일 자체는 제외하며 이미지 URL은 유지한다. JSON은 3MiB 한도다. 서버 HMAC으로 변조/타 계정 파일을 거절한다. 현재 비밀번호와 별도 요청 ID로 복원하며 요청 영수증은 복원 대상에서 제외해 같은 요청의 반복 교체를 방지한다. 복원 완료 시 로그아웃한다.
 - 복원은 같은 DB 트랜잭션으로 삭제/삽입하며 타 계정 행을 건드리지 않는다. 재고 version을 이전/복원 값보다 증가시키고 각 행사의 revision을 새로 발급한다. 모든 행사에 revision 검증을 적용하여 복원 전 화면/오프라인 큐의 쓰기를 거절한다. 행사별 백업/복원 메뉴를 제거하고 기존 API는 410을 반환한다. 행사 복제 및 IndexedDB 주문 진단 백업은 유지한다.
 - `pos_stock_movements`에 계정/요청 ID, 상품명 스냅샷, 행사·상품 참조, 사유(external/damage/loss), 수량, 메모, 시각을 보존한다. 외부 판매는 미배정 창고 수량만, 행사 파손/분실은 해당 행사 잔여 수량만 줄인다. 판매/정산 금액은 생성하지 않는다. 소유권·정수·재고 부족·보관/비활성·version 및 중복 요청을 검사한다. 계정/행사 잠금과 한 트랜잭션으로 기록과 차감을 반영한다. 클라이언트는 모든 행사 미동기화 주문을 차단하고 같은 ID로 재시도한다.
-- `/inventory/movements`는 외부 판매·로스 메뉴이며 재고 상세/행사 상품 상세에도 기록 폼을 제공한다. `/inventory/import`는 XLSX 첫 시트를 읽어 번호/48px 이미지/편집 가능한 상품 필드를 표시한다. 5MB 파일, 압축 해제 20MB, 500개 상품 한도이며 수식은 값으로 바꾸어 입력한다. 예시 XLSX를 제공한다. `importInventory`는 재고 상품들을 원자적으로 생성하고 같은 배치 재요청은 영수증으로 중복 생성하지 않는다. 이미지는 상품 저장 후 별도 업로드하며 이미지 실패는 상품을 취소하지 않는다.
+- `/inventory/movements`는 외부 판매·로스 메뉴이며 재고 상세/행사 상품 상세에도 기록 폼을 제공한다. `/inventory/import`는 XLSX 첫 시트를 읽어 번호/48px 이미지/편집 가능한 상품 필드를 표시한다. 엑셀 컬럼은 상품명·굿즈 종류·캐릭터·제작자·작품/시리즈·재고 6개이며 판매가·원가는 받지 않고 0원으로 등록한다(이후 상품 상세에서 수정). 5MB 파일, 압축 해제 20MB, 500개 상품 한도이며 수식은 값으로 바꾸어 입력한다. 예시 XLSX를 제공한다. `importInventory`는 재고 상품들을 원자적으로 생성하고 같은 배치 재요청은 영수증으로 중복 생성하지 않는다. 이미지는 상품 저장 후 별도 업로드하며 이미지 실패는 상품을 취소하지 않는다.
 - 공통 상품의 판매가/원가를 정수로 저장하고 `(판매가-원가)/판매가` 마진율을 계산한다. 무료 상품의 마진율은 —로 표시한다. 목록은 등록일 오름차순이 기본이며 상품명/잔여 재고/마진율/등록일 헤더로 양방향 정렬한다.
 - 공통 LoadingState의 스켈레톤과 40px 스피너를 앱/대시보드/수익현황/마이페이지에 사용하고 기존 재고 로딩도 같은 크기를 적용한다. 행사 목록 마지막에는 회색 새 행사 추가 카드를 표시한다. SW v127.
 
@@ -634,7 +634,7 @@ flowchart LR
 | sessionStorage | `pos_admin_token`, `pos_admin_id`, `pos_selected_project_id` | 탭 세션 인증/선택; 새 세션 오프라인 인증 보장 없음 |
 | IndexedDB `booth-pos-offline-db.orders` | 자동증가 id, projectId, localOrderId, createdAt, payload, syncStatus, retryCount, lastSyncAt | 상태: PENDING/SYNCING/SYNCED/FAILED/ARCHIVED; 주문과 취소 명령 저장 |
 | IndexedDB `posState` | `project:{projectId}:latest`, state, updatedAt | products/bundles/sales 스냅샷; 주문 큐와 별도 저장 |
-| Postgres `pos_admins` | id PK, email (대소문자/양끝 공백 무시 UNIQUE), password_hash, created_at | 신규 가입 이메일 필수; 기존 계정 NULL 허용 |
+| Postgres `pos_admins` | id PK, email (대소문자/양끝 공백 무시 UNIQUE), password_hash, created_at, privacy_consented_at, privacy_policy_version | 신규 가입 이메일 필수; 기존 계정 NULL 허용. 회원가입은 `privacyConsent === true`가 아니면 400이며, 가입 시각과 서버 상수 `PRIVACY_POLICY_VERSION`을 동의 기록으로 저장한다(정책 이전 계정은 NULL). 탈퇴 시 이메일·닉네임·패스워드는 지우고 동의 기록은 남긴다 |
 | `pos_projects` | id PK, admin_id FK, name, seed_version, timestamps | 관리자 소유 프로젝트; FK cascade |
 | `pos_products` | (project_id,id) PK, 가격/재고/제작자/굿즈/세트 메타데이터 | stock/stock_qty 병행; 가격·재고 INTEGER |
 | `pos_bundles` | (project_id,id) PK, name, price, items JSONB | items = productId/qty 목록 |

@@ -1,6 +1,25 @@
 import { useState } from 'react';
 import Icon from './Icon';
 
+const SUPPORT_EMAIL = 'gieunp3644@gmail.com';
+
+function PrivacyConsent({ checked, onChange }) {
+  return <div className="auth-privacy">
+    <label className="auth-privacy-check"><input type="checkbox" name="signup-privacy-consent" required checked={checked} onChange={(e) => onChange(e.target.checked)} /><span>[필수] 개인정보 수집·이용에 동의합니다.</span></label>
+    <details className="auth-privacy-policy">
+      <summary>개인정보 수집·이용 및 보관 정책 보기</summary>
+      <dl>
+        <div><dt>수집 항목</dt><dd>필수: 아이디, 이메일, 패스워드(암호화 저장) · 선택: 닉네임</dd></div>
+        <div><dt>수집·이용 목적</dt><dd>회원 식별 및 가입 의사 확인, 계정 문의·패스워드 분실 등 본인 확인, 서비스 운영 관련 공지 전달</dd></div>
+        <div><dt>보유·이용 기간</dt><dd>회원 탈퇴 시까지 보관하며, 탈퇴하면 이메일·닉네임·패스워드 정보를 지체 없이 파기합니다. 단, 관계 법령에서 보존을 정한 정보는 해당 기간 동안 보관합니다.</dd></div>
+        <div><dt>파기 방법</dt><dd>전자적 파일 형태의 정보는 복구할 수 없는 방법으로 삭제합니다.</dd></div>
+        <div><dt>동의 거부 권리</dt><dd>개인정보 수집·이용에 동의하지 않을 수 있으나, 동의하지 않으면 회원가입을 할 수 없습니다.</dd></div>
+        <div><dt>문의</dt><dd><a href={`mailto:${SUPPORT_EMAIL}`}>{SUPPORT_EMAIL}</a></dd></div>
+      </dl>
+    </details>
+  </div>;
+}
+
 function PasswordField({ id, label, value, onChange, signup }) {
   const [visible, setVisible] = useState(false);
   return <div className="mb-3">
@@ -19,6 +38,7 @@ function AuthForm({ mode, onAuthenticate }) {
   const [nickname, setNickname] = useState('');
   const [password, setPassword] = useState('');
   const [confirmation, setConfirmation] = useState('');
+  const [privacyConsent, setPrivacyConsent] = useState(false);
   const [error, setError] = useState('');
   const [submitting, setSubmitting] = useState(false);
   const [showPasswordHelp, setShowPasswordHelp] = useState(false);
@@ -30,9 +50,13 @@ function AuthForm({ mode, onAuthenticate }) {
       setError('패스워드와 패스워드 확인이 일치하지 않습니다.');
       return;
     }
+    if (signup && !privacyConsent) {
+      setError('개인정보 수집·이용에 동의해주세요.');
+      return;
+    }
     setSubmitting(true);
     try {
-      await onAuthenticate({ mode, id, password, ...(signup ? { email, nickname } : {}) });
+      await onAuthenticate({ mode, id, password, ...(signup ? { email, nickname, privacyConsent } : {}) });
     } catch (err) {
       setError(err.message);
     } finally {
@@ -51,11 +75,12 @@ function AuthForm({ mode, onAuthenticate }) {
       {signup && <label className="mb-3 block text-sm font-bold">닉네임 (선택)<input maxLength={30} value={nickname} onChange={event => setNickname(event.target.value)} placeholder="비워두면 랜덤 닉네임을 만들어드려요" className="mt-1 w-full rounded border border-line p-1.5 text-[13px]" /></label>}
       <PasswordField id={`${mode}-password`} label="패스워드" signup={signup} value={password} onChange={setPassword} />
       {signup && <PasswordField id="signup-password-confirmation" label="패스워드 확인" signup value={confirmation} onChange={setConfirmation} />}
+      {signup && <PrivacyConsent checked={privacyConsent} onChange={setPrivacyConsent} />}
       {error && <div role="alert" className="mb-3 rounded bg-danger px-3 py-2 text-xs text-white">{error}</div>}
       <button disabled={submitting} className="w-full rounded-lg bg-register px-4 py-3 font-bold text-white disabled:opacity-60">{submitting ? '처리 중…' : signup ? '회원가입하고 시작' : '로그인'}</button>
       {!signup && <div className="auth-password-help">
         <a href="#password-help" aria-expanded={showPasswordHelp} aria-controls="password-help" onClick={(event) => { event.preventDefault(); if (!submitting) setShowPasswordHelp(!showPasswordHelp); }} aria-disabled={submitting}>패스워드를 잊으셨나요?</a>
-        <p id="password-help" hidden={!showPasswordHelp} role="status">현재 패스워드 재설정 기능은 제공하지 않습니다.</p>
+        <p id="password-help" hidden={!showPasswordHelp} role="status">패스워드를 잊으셨다면 아이디를 적어 <a href={`mailto:${SUPPORT_EMAIL}?subject=${encodeURIComponent('[위드부스] 패스워드 재설정 문의')}`}>{SUPPORT_EMAIL}</a>로 문의해주세요.</p>
       </div>}
       <div className="auth-switch">
         <p>{signup ? '이미 회원이신가요?' : '회원가입이 아직이라면'}</p>

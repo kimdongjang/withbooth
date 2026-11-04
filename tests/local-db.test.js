@@ -18,7 +18,7 @@ test('local DB persists auth and serializes transactions without remote credenti
     const { sql } = await import(url);
     db = globalThis[Symbol.for('withbooth.local.database')];
     const { createAdmin, validateAdmin } = await import('../api/lib/auth.js');
-    await createAdmin('local-user', 'test-password', 'local@example.test', 'Local');
+    await createAdmin('local-user', 'test-password', 'local@example.test', 'Local', { privacyConsent: true });
     assert.equal((await validateAdmin('local-user', 'test-password')).id, 'local-user');
     const client = await sql.connect();
     await client.query('BEGIN');
