@@ -575,7 +575,7 @@ test('sales navigation stays visible and event tools follow server capabilities'
   assert.equal(tree.some(n=>n.props['aria-label']==='주 메뉴'),false);
   assert.equal(tree.some(n=>n.props.className==='header-secondary'),false);
   assert.deepEqual(event.filter(n=>n.type==='a').map(n=>n.props.children.filter(c=>typeof c==='string')[0]),expected);
-  assert.ok(event.some(n=>n.type==='button'&&n.props.children.includes('내 계정 ')));
+  assert.ok(event.some(n=>n.type==='button'&&n.props.children.includes('더보기 ')));
  }
 });
 
@@ -588,7 +588,7 @@ test('revenue and dashboard remain reachable through more while sales without an
  assert.equal(tree.some(n=>n.props['aria-label']==='행사 메뉴'),false);
  tree.find(n=>n.type==='button'&&n.props['aria-controls']==='header-more-menu').props.onClick();
  tree=header.render(props,'AppHeader');await header.flush();
- const menu=nodes(tree.find(n=>n.props['aria-label']==='내 계정 메뉴'));
+ const menu=nodes(tree.find(n=>n.props['aria-label']==='더보기 메뉴'));
  assert.deepEqual(menu.filter(n=>n.type==='a').map(n=>n.props.href),['#/projects','#/inventory','#/dashboard','#/account']);
  assert.equal(menu.find(n=>n.props['aria-current']==='page').props.href,'#/account');
  header.listeners.get('keydown')({key:'Escape'});
