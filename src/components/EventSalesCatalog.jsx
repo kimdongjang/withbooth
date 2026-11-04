@@ -1,12 +1,12 @@
 import {useState} from 'react';
-import {won,eventCreatorNameOf} from '../utils/productDisplay';
+import {won,eventCreatorNameOf,compareProductSaleNumber} from '../utils/productDisplay';
 
 export default function EventSalesCatalog({items,event,products=[],sales,renderDetail,renderProduct,onAdd,onBulk,disabled,productId='',navigate}) {
  const [selectedId,setSelectedId]=useState('');
  const allocation=item=>item.allocations.find(row=>row.projectId===event.id);
  const product=item=>products.find(row=>row.id===allocation(item)?.productId);
  // 행사 상태 API는 활성 상품만 내려준다. 상품 관리에서 제거한 상품은 배정·판매 이력이 남아도 목록에서 뺀다.
- const eventItems=items.filter(item=>allocation(item)&&product(item)&&product(item).isActive!==false);
+ const eventItems=items.filter(item=>allocation(item)&&product(item)&&product(item).isActive!==false).sort((a,b)=>compareProductSaleNumber(product(a),product(b)));
  const selected=eventItems.find(item=>productId?item.allocations.some(row=>row.projectId===event.id&&row.productId===productId):item.id===selectedId);
  return <section className="product-management event-sales-catalog">
   <header className="management-heading"><h2>{selected?'행사 상품 상세':'상품 목록'}</h2>{!selected&&onAdd&&<div className="management-actions">{onBulk&&<label className="management-add management-add-secondary" aria-disabled={disabled||undefined}>이미지로 일괄 추가<input hidden type="file" multiple accept="image/jpeg,image/png,image/webp" aria-label="상품 이미지 여러 장 선택" disabled={disabled} onChange={e=>{const files=Array.from(e.target.files||[]);e.target.value='';if(files.length)onBulk(files);}}/></label>}<button type="button" className="management-add" disabled={disabled} onClick={onAdd}>+ 새 상품 등록</button></div>}{selected&&<button type="button" className="management-back" onClick={()=>navigate?navigate(`/products?projectId=${encodeURIComponent(event.id)}`):setSelectedId('')}>← 목록으로</button>}</header>

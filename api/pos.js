@@ -629,6 +629,20 @@ async function reorderProducts(projectId, payload) {
   await sql`UPDATE pos_projects SET updated_at=NOW() WHERE id=${projectId}`;
 }
 
+// Set purchase order: bundle_number doubles as the sale-screen order and the detail URL index.
+async function reorderBundles(projectId, payload) {
+  await ensureBundleNumbers(projectId);
+  const current=(await sql`SELECT id FROM pos_bundles WHERE project_id=${projectId} ORDER BY bundle_number,id`).rows.map(row=>row.id);
+  if (!Array.isArray(payload.expectedOrder) || JSON.stringify(payload.expectedOrder)!==JSON.stringify(current)) throw Object.assign(new Error('세트 순서가 변경되었습니다. 새로고침 후 다시 수정해주세요.'),{status:409});
+  const target=payload.bundleNumber;
+  if (!Number.isInteger(target) || target<1 || target>current.length || !current.includes(payload.bundleId)) throw Object.assign(new Error('세트 번호는 현재 세트 수 안의 양의 정수로 입력해주세요.'),{status:400});
+  const next=current.filter(id=>id!==payload.bundleId);next.splice(target-1,0,payload.bundleId);
+  await sql`UPDATE pos_bundles b SET bundle_number=n.position::integer
+    FROM jsonb_array_elements_text(${JSON.stringify(next)}::jsonb) WITH ORDINALITY AS n(id,position)
+    WHERE b.project_id=${projectId} AND b.id=n.id`;
+  await sql`UPDATE pos_projects SET updated_at=NOW() WHERE id=${projectId}`;
+}
+
 async function readState(adminId, projectId) {
   await assertProject(adminId, projectId);
   await ensureProductSaleNumbers(projectId);
@@ -1118,6 +1132,7 @@ async function handler(req, res) {
       await sql`UPDATE pos_projects SET updated_at=NOW() WHERE id=${projectId}`;
     }
     else if (action === 'reorderProducts') await reorderProducts(projectId, payload);
+    else if (action === 'reorderBundles') await reorderBundles(projectId, payload);
     else if (action === 'replaceProducts') await replaceProducts(admin.id, projectId, payload.products || []);
     else if (action === 'updateProductImage') await updateProductImage(admin.id, projectId, payload);
     else if (action === 'replaceBundles') await replaceBundles(admin.id, projectId, payload.bundles || []);
@@ -1167,7 +1182,7 @@ export default async function transactionalHandler(req, res) {
       const eventId=req.query?.projectId||req.body?.projectId||req.body?.payload?.projectId;
       const accessTables=(await sql`SELECT to_regclass('pos_event_staff') AS name`).rows[0]?.name;
       const action=req.body?.action;
-      const configuration=['replaceProducts','replaceBundles','reorderProducts','removeProduct','saveEventProduct'];
+      const configuration=['replaceProducts','replaceBundles','reorderProducts','reorderBundles','removeProduct','saveEventProduct'];
       if(eventId&&accessTables) {
         const capability=req.method==='GET'?'pos':['finalizeSale','voidSale'].includes(action)?'sell':configuration.includes(action)?'configure':'manage';
         const deleted=action==='deleteProject'&&(await sql`SELECT id FROM pos_projects WHERE id=${eventId} AND deleted_at IS NOT NULL`).rows.length;

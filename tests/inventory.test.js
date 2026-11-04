@@ -884,3 +884,21 @@ test('set numbers are server-owned, survive edits and number legacy rows after t
     assert.equal(numberOf(state.bundles, 'set-a'), 2);
   } finally { await db.close(); }
 });
+
+test('set reorder renumbers purchase order atomically and rejects stale or invalid moves', async () => {
+  const { db, invoke } = await fixture();
+  try {
+    const event = (await invoke('createProject', null, { name: '세트 순서 행사' })).body.project.id;
+    const items = [{ productId: 'p1', qty: 1 }];
+    let state = (await invoke('replaceBundles', event, { bundles: ['s1', 's2', 's3'].map(id => ({ id, name: id, price: 0, items })) })).body;
+    assert.deepEqual(state.bundles.map(bundle => [bundle.id, bundle.bundleNumber]), [['s1', 1], ['s2', 2], ['s3', 3]]);
+    const moved = await invoke('reorderBundles', event, { bundleId: 's3', bundleNumber: 1, expectedOrder: ['s1', 's2', 's3'] });
+    assert.equal(moved.status, 200, JSON.stringify(moved.body));
+    assert.deepEqual(moved.body.bundles.map(bundle => [bundle.id, bundle.bundleNumber]), [['s3', 1], ['s1', 2], ['s2', 3]]);
+    assert.equal((await invoke('reorderBundles', event, { bundleId: 's1', bundleNumber: 1, expectedOrder: ['s1', 's2', 's3'] })).status, 409);
+    assert.equal((await invoke('reorderBundles', event, { bundleId: 's1', bundleNumber: 4, expectedOrder: ['s3', 's1', 's2'] })).status, 400);
+    assert.equal((await invoke('reorderBundles', event, { bundleId: 'missing', bundleNumber: 1, expectedOrder: ['s3', 's1', 's2'] })).status, 400);
+    state = (await invoke(null, event)).body;
+    assert.deepEqual(state.bundles.map(bundle => bundle.id), ['s3', 's1', 's2']);
+  } finally { await db.close(); }
+});
