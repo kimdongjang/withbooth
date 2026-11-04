@@ -11,26 +11,20 @@ import ProductCreatePage from './ProductCreatePage';
 import BulkProductImages from './BulkProductImages';
 import BundleCreatePage from './BundleCreatePage';
 import ActionIcon from '../components/ActionIcon';
+import { useUnsavedChanges } from '../hooks/useUnsavedChanges';
 import ProductEditForm from '../components/ProductEditForm';
 
-export default function ProductsPage({ adminId, inventoryApi, dataRevision, projectName, initialProductId = '', readOnly, projectId, settingsTab, setSettingsTab, saving, mutate, products, bundles, sales, registerProduct, persistProducts, persistBundles, creatingBundle, creatingProduct, navigate, bundleName, setBundleName, bundleRows, setBundleRows, bundlePrice, setBundlePrice, addBundleToSettings }) {
-  const [selectedBundleId, setSelectedBundleId] = useState(null);
-  const selectedBundle = bundles.find((bundle) => bundle.id === selectedBundleId);
-  const [editingBundle, setEditingBundle] = useState(null);
-  const [editName, setEditName] = useState(''), [editPrice, setEditPrice] = useState(''), [editRows, setEditRows] = useState([]);
-  const startEditBundle = (bundle) => { setEditName(bundle.name); setEditPrice(String(bundle.price)); setEditRows(bundle.items.map(item => ({ productId: item.productId, qty: item.qty }))); setEditingBundle(bundle.id); };
-  const saveEditedBundle = async () => {
-    const price = Number(editPrice);
-    const items = editRows.filter((row) => row.productId).map((row) => ({ productId: row.productId, qty: Number(row.qty) }));
-    if (!editName.trim() || String(editPrice).trim() === '' || !Number.isInteger(price) || price < 0 || !items.length || items.some((item) => !Number.isInteger(item.qty) || item.qty <= 0)) return alert('세트 이름, 0원 이상의 정수 판매가, 구성품과 양의 정수 수량을 입력해주세요.');
-    if (!bundles.some(bundle => bundle.id === editingBundle)) return alert('세트를 찾을 수 없습니다. 목록을 다시 확인해주세요.');
-    if (await persistBundles(bundles.map(bundle => bundle.id === editingBundle ? { ...bundle, name: editName.trim(), price, items } : bundle))) setEditingBundle(null);
-  };
-  useEffect(() => { setSelectedBundleId(null); }, [settingsTab, projectId]);
-  if (creatingProduct) return <ProductCreatePage projectId={projectId} onImageChange={(productId, imageUrl) => mutate('updateProductImage', { productId, imageUrl })} key={projectId} readOnly={readOnly} saving={saving} products={products} registerProduct={registerProduct} onBack={() => navigate('settings', 'products')} />;
-  if (editingBundle && settingsTab === 'bundles') return <BundleCreatePage title="세트 수정" backLabel="← 세트 상세로" submitLabel="수정 저장" readOnly={readOnly} saving={saving} products={products} bundleName={editName} setBundleName={setEditName} bundleRows={editRows} setBundleRows={setEditRows} bundlePrice={editPrice} setBundlePrice={setEditPrice} onSave={saveEditedBundle} onBack={() => setEditingBundle(null)} />;
-  if (creatingBundle) return <BundleCreatePage readOnly={readOnly} saving={saving} products={products} bundleName={bundleName} setBundleName={setBundleName} bundleRows={bundleRows} setBundleRows={setBundleRows} bundlePrice={bundlePrice} setBundlePrice={setBundlePrice} onSave={addBundleToSettings} onBack={() => navigate('settings')} />;
-  return <main id="event-settings-panel-bundles" role="tabpanel" aria-labelledby="event-settings-tab-bundles" className="page-content settings-page"><div className="settings-content">{settingsTab === 'products' && <ProductSettingsPanel adminId={adminId} inventoryApi={inventoryApi} dataRevision={dataRevision} projectName={projectName} initialProductId={initialProductId} navigate={navigate} onReorder={payload => mutate('reorderProducts', payload)} onRemove={productId => mutate('removeProduct', { productId })} onDateChange={(productId, date) => mutate('updateProductRegistrationDate', { productId, date })} onAdd={() => navigate('productNew', 'products')} readOnly={readOnly} key={projectId} projectId={projectId} saving={saving} onImageChange={(productId, imageUrl) => mutate('updateProductImage', { productId, imageUrl })} products={products} bundles={bundles} sales={sales} persistProducts={persistProducts} persistBundles={persistBundles} />}{settingsTab === 'bundles' && (selectedBundle ? <BundleDetail readOnly={readOnly} bundle={selectedBundle} products={products} sales={sales} bundles={bundles} persistBundles={persistBundles} onEdit={() => startEditBundle(selectedBundle)} onBack={() => setSelectedBundleId(null)} /> : <section className="product-management"><header className="management-heading"><div><h2>세트 목록</h2></div><button type="button" disabled={readOnly || saving} className="management-add" onClick={() => navigate('bundleNew')}>+ 세트 추가</button></header><div className="management-summary"><span>등록 세트 <b>{bundles.length}개</b></span>{saving && <span role="status">변경 사항 저장 중…</span>}</div><BundleManagementTable readOnly={readOnly} saving={saving} onAdd={() => navigate('bundleNew')} bundles={bundles} products={products} sales={sales} persistBundles={persistBundles} onSelect={setSelectedBundleId} /></section>)}</div></main>;
+export default function ProductsPage({ adminId, inventoryApi, dataRevision, projectName, initialProductId = '', readOnly, projectId, settingsTab, saving, mutate, products, bundles, sales, registerProduct, persistProducts, persistBundles, creatingBundle, creatingProduct, navigate, routeBundleNumber = null, bundleName, setBundleName, bundleRows, setBundleRows, bundlePrice, setBundlePrice, addBundleToSettings }) {
+  const bundlePath = (bundle) => `/bundles/${bundle.bundleNumber}?projectId=${encodeURIComponent(projectId)}`;
+  const listPath = `/bundles?projectId=${encodeURIComponent(projectId)}`;
+  if (creatingProduct) return <ProductCreatePage projectId={projectId} onImageChange={(productId, imageUrl) => mutate('updateProductImage', { productId, imageUrl })} key={projectId} readOnly={readOnly} saving={saving} products={products} registerProduct={registerProduct} onBack={() => navigate('settings')} />;
+  if (creatingBundle) return <BundleCreatePage readOnly={readOnly} saving={saving} products={products} bundleName={bundleName} setBundleName={setBundleName} bundleRows={bundleRows} setBundleRows={setBundleRows} bundlePrice={bundlePrice} setBundlePrice={setBundlePrice} onSave={addBundleToSettings} onBack={() => navigate(listPath)} />;
+  if (routeBundleNumber) {
+    const bundle = bundles.find((item) => item.bundleNumber === routeBundleNumber);
+    if (!bundle) return <main className="page-content settings-page"><div className="settings-content product-management"><div className="management-empty"><h3>세트를 찾을 수 없습니다</h3><p>삭제되었거나 존재하지 않는 세트 번호입니다.</p><button type="button" className="management-back" onClick={() => navigate(listPath)}>세트 목록으로</button></div></div></main>;
+    return <BundleEditor key={bundle.id} readOnly={readOnly} saving={saving} bundle={bundle} bundles={bundles} products={products} sales={sales} persistBundles={persistBundles} onBack={() => navigate(listPath)} />;
+  }
+  return <main id="event-settings-panel-bundles" role="tabpanel" aria-labelledby="event-settings-tab-bundles" className="page-content settings-page"><div className="settings-content">{settingsTab === 'products' && <ProductSettingsPanel adminId={adminId} inventoryApi={inventoryApi} dataRevision={dataRevision} projectName={projectName} initialProductId={initialProductId} navigate={page => navigate(page)} onReorder={payload => mutate('reorderProducts', payload)} onRemove={productId => mutate('removeProduct', { productId })} onDateChange={(productId, date) => mutate('updateProductRegistrationDate', { productId, date })} onAdd={() => navigate('productNew')} readOnly={readOnly} key={projectId} projectId={projectId} saving={saving} onImageChange={(productId, imageUrl) => mutate('updateProductImage', { productId, imageUrl })} products={products} bundles={bundles} sales={sales} persistProducts={persistProducts} persistBundles={persistBundles} />}{settingsTab === 'bundles' && <section className="product-management"><header className="management-heading"><div><h2>세트 목록</h2></div><button type="button" disabled={readOnly || saving} className="management-add" onClick={() => navigate('bundleNew')}>+ 세트 추가</button></header><div className="management-summary"><span>등록 세트 <b>{bundles.length}개</b></span>{saving && <span role="status">변경 사항 저장 중…</span>}</div><BundleManagementTable readOnly={readOnly} saving={saving} onAdd={() => navigate('bundleNew')} bundles={bundles} products={products} sales={sales} persistBundles={persistBundles} onSelect={(bundle) => navigate(bundlePath(bundle))} /></section>}</div></main>;
 }
 
 
@@ -38,10 +32,11 @@ function BundleManagementTable({ readOnly, saving, bundles, products, sales, per
   const quantities = managementQuantities(sales, bundles);
   const productsById = new Map(products.map((product) => [product.id, product]));
   return <div className="management-table-wrap"><table className="management-table bundle-management-table" role="table">
-    <caption className="sr-only">세트 이름, 구성품, 판매가, 판매수량, 판매 가능 수량, 관리 목록</caption>
-    <thead role="rowgroup"><tr role="row">{['세트 이름', '구성품', '판매가', '판매수량', '판매 가능 수량', '관리'].map((label) => <th key={label} scope="col" role="columnheader">{label}</th>)}</tr></thead>
-    <tbody role="rowgroup">{!bundles.length&&<tr role="row" className="table-empty-row"><td role="cell" colSpan={6}><p>등록된 세트가 없어요. 구성품과 판매가를 정해 첫 세트를 등록해 보세요.</p><button type="button" disabled={readOnly || saving} className="management-add" onClick={onAdd}>+ 세트 추가</button></td></tr>}{bundles.map((bundle) => <tr key={bundle.id} role="row">
-      <td role="cell" data-label="세트 이름"><button type="button" className="management-name-link" aria-label={`${bundle.name} 상세보기`} onClick={() => onSelect(bundle.id)}>{bundle.name}</button><small className="management-mobile-meta">{bundle.items.length}종 구성</small></td>
+    <caption className="sr-only">세트 번호, 세트 이름, 구성품, 판매가, 판매수량, 판매 가능 수량, 관리 목록</caption>
+    <thead role="rowgroup"><tr role="row">{['번호', '세트 이름', '구성품', '판매가', '판매수량', '판매 가능 수량', '관리'].map((label) => <th key={label} scope="col" role="columnheader">{label}</th>)}</tr></thead>
+    <tbody role="rowgroup">{!bundles.length&&<tr role="row" className="table-empty-row"><td role="cell" colSpan={7}><p>등록된 세트가 없어요. 구성품과 판매가를 정해 첫 세트를 등록해 보세요.</p><button type="button" disabled={readOnly || saving} className="management-add" onClick={onAdd}>+ 세트 추가</button></td></tr>}{bundles.map((bundle) => <tr key={bundle.id} role="row">
+      <td role="cell" data-label="번호" className="mono bundle-number-cell">{bundle.bundleNumber || '-'}</td>
+      <td role="cell" data-label="세트 이름">{bundle.bundleNumber ? <button type="button" className="management-name-link" aria-label={`${bundle.name} 상세보기`} onClick={() => onSelect(bundle)}>{bundle.name}</button> : <span>{bundle.name}</span>}<small className="management-mobile-meta">{bundle.items.length}종 구성</small></td>
       <td role="cell" data-label="구성품" className="management-components-cell"><ul className="bundle-table-components">{bundle.items.map((item, index) => {
         const product = productsById.get(item.productId);
         return <li key={index}>{product ? productNameWithoutCreator(product) : '삭제된 상품'} · {item.qty}개<small>{product ? creatorNameOf(product) : '구성 확인 필요'}</small></li>;
@@ -54,24 +49,26 @@ function BundleManagementTable({ readOnly, saving, bundles, products, sales, per
   </table></div>;
 }
 
-function BundleDetail({ readOnly, bundle, products, sales, bundles, persistBundles, onEdit, onBack }) {
-  const backButton = useRef(null);
-  useEffect(() => { backButton.current?.focus(); }, []);
-  return <section className="product-management">
-    <header className="management-heading"><h2>세트 상세</h2><button ref={backButton} type="button" className="management-back" onClick={onBack}>← 목록으로</button></header>
-    <article className="management-product">
-      <div className="management-product-header bundle-detail-header"><div className="bundle-detail-title"><span className="event-product-tag" aria-label={`${bundles.findIndex((item) => item.id === bundle.id) + 1}번 세트`}>{bundles.findIndex((item) => item.id === bundle.id) + 1}</span><h3>{bundle.name}</h3></div><div className="bundle-detail-actions"><button type="button" disabled={readOnly} className="management-back" onClick={onEdit}>수정</button><button type="button" disabled={readOnly} className="management-delete" onClick={() => { if (confirm('세트를 삭제할까요?')) persistBundles(bundles.filter((item) => item.id !== bundle.id)); }}>삭제</button></div></div>
-      <div className="bundle-management-body"><div className="management-fields management-fields-three">
-        <div className="management-field"><span>판매가</span><strong>{won(bundle.price)}원</strong></div>
-        <Quantity label="판매수량" value={managementQuantities(sales, bundles).bundles.get(bundle.id) || 0} />
-        <Quantity label="판매 가능 수량" value={managementBundleStock(bundle, products)} />
-      </div><p className="management-note">판매 가능 수량은 구성품의 남은 재고 기준이며 다른 세트와 재고를 공유합니다.</p><h4>세트 구성</h4>
-      <ul className="bundle-components">{bundle.items.map((item, index) => {
-        const product = products.find((p) => p.id === item.productId);
-        return <li key={index}><span>{product ? productNameWithoutCreator(product) : '삭제된 상품'}<small>{product ? creatorNameOf(product) : '구성 확인 필요'}</small><small>남은 재고 {won(product?.stockQty ?? product?.stock ?? 0)}개</small></span><strong>{item.qty}개</strong></li>;
-      })}</ul></div>
-    </article>
-  </section>;
+// Set detail is the registration form prefilled with the saved set, so both screens stay identical.
+function BundleEditor({ readOnly, saving, bundle, bundles, products, sales, persistBundles, onBack }) {
+  const initialRows = () => bundle.items.map((item) => ({ productId: item.productId, qty: item.qty }));
+  const [name, setName] = useState(bundle.name), [price, setPrice] = useState(String(bundle.price)), [rows, setRows] = useState(initialRows);
+  const dirty = name !== bundle.name || price !== String(bundle.price) || JSON.stringify(rows.filter((row) => row.productId).map((row) => [row.productId, Number(row.qty)])) !== JSON.stringify(bundle.items.map((item) => [item.productId, Number(item.qty)]));
+  const clearUnsaved = useUnsavedChanges(dirty);
+  // Take server updates of this set while there are no local edits.
+  useEffect(() => { if (!dirty) { setName(bundle.name); setPrice(String(bundle.price)); setRows(initialRows()); } }, [bundle]);
+  const save = async () => {
+    const nextPrice = Number(price);
+    const items = rows.filter((row) => row.productId).map((row) => ({ productId: row.productId, qty: Number(row.qty) }));
+    if (!name.trim() || String(price).trim() === '' || !Number.isInteger(nextPrice) || nextPrice < 0 || !items.length || items.some((item) => !Number.isInteger(item.qty) || item.qty <= 0)) return alert('세트 이름, 0원 이상의 정수 판매가, 구성품과 양의 정수 수량을 입력해주세요.');
+    if (!bundles.some((item) => item.id === bundle.id)) return alert('세트를 찾을 수 없습니다. 목록을 다시 확인해주세요.');
+    if (await persistBundles(bundles.map((item) => item.id === bundle.id ? { ...item, name: name.trim(), price: nextPrice, items } : item))) clearUnsaved();
+  };
+  const remove = async () => {
+    if (!await confirmAction('세트를 삭제할까요? 지난 판매 기록은 유지됩니다.', { title: '세트 삭제', confirmLabel: '삭제' })) return;
+    if (await persistBundles(bundles.filter((item) => item.id !== bundle.id))) { clearUnsaved(); onBack(); }
+  };
+  return <BundleCreatePage title="세트 상세" backLabel="← 세트 목록으로" submitLabel="변경 저장" number={bundle.bundleNumber} soldQty={managementQuantities(sales, bundles).bundles.get(bundle.id) || 0} onDelete={readOnly ? null : remove} canSubmit={dirty} readOnly={readOnly} saving={saving} products={products} bundleName={name} setBundleName={setName} bundleRows={rows} setBundleRows={setRows} bundlePrice={price} setBundlePrice={setPrice} onSave={save} onBack={onBack} />;
 }
 
 function ProductSettingsPanel({ adminId, inventoryApi, dataRevision, projectName, initialProductId = '', navigate, onReorder, onRemove, onAdd, readOnly, projectId, saving, onImageChange, products, bundles, sales, persistProducts, persistBundles }) {

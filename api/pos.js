@@ -71,6 +71,7 @@ async function initDb() {
   await sql`ALTER TABLE pos_products ADD COLUMN IF NOT EXISTS genre TEXT`;
   await sql`ALTER TABLE pos_products ADD COLUMN IF NOT EXISTS sale_number INTEGER CHECK (sale_number > 0)`;
   await sql`CREATE TABLE IF NOT EXISTS pos_bundles (project_id TEXT NOT NULL REFERENCES pos_projects(id) ON DELETE CASCADE, id TEXT NOT NULL, name TEXT NOT NULL, price INTEGER NOT NULL, items JSONB NOT NULL, PRIMARY KEY(project_id, id))`;
+  await sql`ALTER TABLE pos_bundles ADD COLUMN IF NOT EXISTS bundle_number INTEGER CHECK (bundle_number > 0)`;
   await sql`CREATE TABLE IF NOT EXISTS pos_sales (project_id TEXT NOT NULL REFERENCES pos_projects(id) ON DELETE CASCADE, id TEXT NOT NULL, time TIMESTAMPTZ NOT NULL, method TEXT NOT NULL, total INTEGER NOT NULL, lines JSONB NOT NULL, PRIMARY KEY(project_id, id))`;
   await sql`CREATE TABLE IF NOT EXISTS pos_sale_receipts (
     project_id TEXT NOT NULL REFERENCES pos_projects(id) ON DELETE CASCADE,
@@ -606,6 +607,15 @@ async function ensureProductSaleNumbers(projectId) {
   await sql`UPDATE pos_products SET sale_number=NULL WHERE project_id=${projectId} AND is_active=FALSE AND sale_number IS NOT NULL`;
 }
 
+// Set numbers are stable URL indexes: kept across edits, never compacted, and
+// missing ones (older rows, restores, defaults) continue after the highest number.
+async function ensureBundleNumbers(projectId) {
+  await sql`SELECT id FROM pos_projects WHERE id=${projectId} FOR UPDATE`;
+  await sql`WITH base AS (SELECT COALESCE(MAX(bundle_number),0) AS top FROM pos_bundles WHERE project_id=${projectId}),
+    numbered AS (SELECT id,(SELECT top FROM base)+ROW_NUMBER() OVER (ORDER BY id)::integer AS position FROM pos_bundles WHERE project_id=${projectId} AND bundle_number IS NULL)
+    UPDATE pos_bundles b SET bundle_number=n.position FROM numbered n WHERE b.project_id=${projectId} AND b.id=n.id`;
+}
+
 async function reorderProducts(projectId, payload) {
   await ensureProductSaleNumbers(projectId);
   const current=(await sql`SELECT id FROM pos_products WHERE project_id=${projectId} AND COALESCE(is_active,TRUE)=TRUE ORDER BY sale_number,id`).rows.map(row=>row.id);
@@ -622,6 +632,7 @@ async function reorderProducts(projectId, payload) {
 async function readState(adminId, projectId) {
   await assertProject(adminId, projectId);
   await ensureProductSaleNumbers(projectId);
+  await ensureBundleNumbers(projectId);
   const [products, bundles, sales] = await Promise.all([
     sql`SELECT p.*, l.inventory_id, i.product_number, i.version AS inventory_version,
       CASE WHEN i.id IS NOT NULL THEN i.product->>'name' ELSE p.name END AS name,
@@ -630,7 +641,7 @@ async function readState(adminId, projectId) {
       CASE WHEN i.id IS NOT NULL THEN i.product->>'creatorName' ELSE p.creator_name END AS creator_name,
       CASE WHEN i.id IS NOT NULL THEN i.product->>'imageUrl' ELSE p.image_url END AS image_url,
       CASE WHEN i.id IS NOT NULL THEN COALESCE(i.product->>'genre','') ELSE COALESCE(p.genre,'') END AS genre FROM pos_products p LEFT JOIN pos_inventory_links l ON l.project_id=p.project_id AND l.product_id=p.id AND l.admin_id=${adminId} LEFT JOIN pos_inventory i ON i.admin_id=l.admin_id AND i.id=l.inventory_id WHERE p.project_id = ${projectId} AND COALESCE(p.is_active, TRUE) = TRUE ORDER BY p.sale_number,p.id`,
-    sql`SELECT id, name, price, items FROM pos_bundles WHERE project_id = ${projectId} ORDER BY id`,
+    sql`SELECT id, name, price, items, bundle_number FROM pos_bundles WHERE project_id = ${projectId} ORDER BY bundle_number NULLS LAST, id`,
     sql`SELECT id, time, method, total, lines FROM pos_sales WHERE project_id = ${projectId} ORDER BY time ASC`,
   ]);
   return {
@@ -638,7 +649,7 @@ async function readState(adminId, projectId) {
     archivedAt: (await sql`SELECT archived_at FROM pos_projects WHERE id = ${projectId}`).rows[0]?.archived_at || null,
     dataRevision: await dataRevision(projectId),
     products: products.rows.map((product) => ({ id: product.id, saleNumber: product.sale_number == null ? null : Number(product.sale_number), inventoryId: product.inventory_id || null, productNumber: product.product_number || null, inventoryVersion: product.inventory_version ?? null, genre: product.genre || '', productCode: product.product_code || product.id, goodsType: product.goods_type ?? product.name, vtuberName: product.vtuber_name || '', creatorName: product.creator_name || '', stockQty: Number(product.stock_qty ?? product.stock ?? 0), initialStockQty: Number(product.initial_stock_qty ?? product.stock_qty ?? product.stock ?? 0), size: product.size || null, imageUrl: product.image_url || null, price: Number(product.price) || 0, setCreatorName: product.set_creator_name || null, setGroupName: product.set_group_name || null, setPrice: product.set_price == null ? null : Number(product.set_price) || 0, setDescription: product.set_description || null, isActive: product.is_active !== false, createdAt: new Date(product.created_at).toISOString(), updatedAt: new Date(product.updated_at).toISOString(), name: product.name, stock: Number(product.stock_qty ?? product.stock ?? 0) })),
-    bundles: bundles.rows.map((bundle) => ({ ...bundle, items: bundle.items || [] })),
+    bundles: bundles.rows.map(({ bundle_number, ...bundle }) => ({ ...bundle, bundleNumber: bundle_number == null ? null : Number(bundle_number), items: bundle.items || [] })),
     sales: sales.rows.map((sale) => ({ ...sale, time: new Date(sale.time).toISOString(), lines: sale.lines || [] })),
   };
 }
@@ -674,8 +685,18 @@ async function updateProductImage(adminId, projectId, { productId, imageUrl }) {
 
 async function replaceBundles(adminId, projectId, bundles) {
   await assertProject(adminId, projectId);
+  await ensureBundleNumbers(projectId);
+  // The server owns set numbers: existing sets keep theirs, new sets continue after the current highest number.
+  const previous = (await sql`SELECT id, bundle_number FROM pos_bundles WHERE project_id = ${projectId}`).rows;
+  const numbers = new Map(previous.map(row => [row.id, Number(row.bundle_number)]));
+  let next = previous.reduce((top, row) => Math.max(top, Number(row.bundle_number) || 0), 0);
   await sql`DELETE FROM pos_bundles WHERE project_id = ${projectId}`;
-  for (const bundle of bundles) await sql`INSERT INTO pos_bundles (project_id, id, name, price, items) VALUES (${projectId}, ${bundle.id || uid()}, ${bundle.name || '새 세트'}, ${Number(bundle.price) || 0}, ${JSON.stringify(bundle.items || [])}::jsonb)`;
+  for (const bundle of bundles) {
+    const id = bundle.id || uid();
+    const number = numbers.get(id) || ++next;
+    numbers.set(id, number);
+    await sql`INSERT INTO pos_bundles (project_id, id, name, price, items, bundle_number) VALUES (${projectId}, ${id}, ${bundle.name || '새 세트'}, ${Number(bundle.price) || 0}, ${JSON.stringify(bundle.items || [])}::jsonb, ${number})`;
+  }
   await sql`UPDATE pos_projects SET updated_at = NOW() WHERE id = ${projectId}`;
 }
 
