@@ -1382,7 +1382,7 @@ input, select { background: white; color: #17243b; min-height: 36px; }
 .event-participant-table th:nth-child(2){width:12%}
 .event-participant-table th:nth-child(3){width:15%;white-space:nowrap}
 .event-participant-table th:nth-child(4){width:25%}
-.event-participant-table th:nth-child(5){width:22%;white-space:nowrap}
+.event-participant-table th:nth-child(5){width:1%;white-space:nowrap}
 .event-account-link{display:inline-flex;align-items:center;gap:8px;max-width:100%;padding:0;color:#2563eb;text-align:left;overflow-wrap:anywhere}
 .event-account-link:hover span{text-decoration:underline}
 .event-account-link .header-avatar{width:28px;height:28px;flex:0 0 28px;object-fit:cover;border-radius:50%}
@@ -1992,6 +1992,7 @@ body:has(.api-read-indicator) .loading-state{visibility:hidden}
  .primary-navigation>a[aria-current=page],.primary-more>button.is-active{background:#eff6ff}
  .primary-navigation .primary-more{width:100%}
  .primary-navigation .primary-more .header-popover{position:static;box-shadow:none;border:0;padding:0 0 0 16px;width:auto}
+ .primary-more>button{pointer-events:none}.primary-more>button>[aria-hidden=true]{display:none}
  .event-switcher-panel{left:16px;right:16px;top:64px;width:auto;max-width:none}
  .primary-navigation{justify-content:space-between;gap:8px}.event-workspace-navigation .primary-more{margin-left:0}.event-workspace-navigation>a{font-size:inherit}
  .primary-navigation>a,.primary-more>button{gap:4px;padding-inline:0}
@@ -2117,8 +2118,7 @@ body:has(.api-read-indicator) .loading-state{visibility:hidden}
 .event-settlement-totals dd{margin:4px 0 0;font-weight:700;font-variant-numeric:tabular-nums;overflow-wrap:anywhere}
 .event-settlement-panel :is(.event-cost-dialog,.app-confirm-dialog){max-height:calc(100dvh - 32px);overflow-y:auto}
 @media(max-width:767px){
- .event-settlement-actions{width:100%;margin:0;display:grid;grid-template-columns:repeat(auto-fit,minmax(140px,1fr))}
- .event-settlement-actions>button{width:100%;margin:0}
+ #root .event-management-page .event-settlement-panel{padding-inline:var(--event-content-space)}
  .event-cost-actions>button{flex:1;margin:0}
  .event-cost-heading>button{flex-shrink:0}
  .event-settlement-panel :is(.event-cost-row-actions,.event-settlement-row-actions)>button{min-height:40px}
