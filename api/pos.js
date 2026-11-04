@@ -840,7 +840,7 @@ async function importProject(adminId, name, backup, duplicate = false, sourcePro
     if(context?.boothId) {
       await sql`INSERT INTO pos_event_product_identities(project_id,product_id,owner_id,recipient_id,resolution) SELECT ${id},product_id,owner_id,recipient_id,resolution FROM pos_event_product_identities WHERE project_id=${sourceProjectId}`;
       await sql`INSERT INTO pos_event_recipients(project_id,legacy_creator,recipient_id) SELECT ${id},legacy_creator,recipient_id FROM pos_event_recipients WHERE project_id=${sourceProjectId}`;
-      if((await sql`SELECT to_regclass('pos_event_artists') AS name`).rows[0]?.name)await sql`INSERT INTO pos_event_artists(project_id,owner_id,status) SELECT ${id},owner_id,'active' FROM pos_event_artists WHERE project_id=${sourceProjectId} AND status='active'`;
+      if((await sql`SELECT to_regclass('pos_event_artists') AS name`).rows[0]?.name)await sql`INSERT INTO pos_event_artists(project_id,owner_id,status,joined_at) SELECT ${id},owner_id,'active',NOW() FROM pos_event_artists WHERE project_id=${sourceProjectId} AND status='active'`;
     }
   }
   if(!duplicate&&backup.version===2) {

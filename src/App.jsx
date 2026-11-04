@@ -452,6 +452,8 @@ export default function App() {
       if (activeScope.current !== scope) return;
       await eventReads.invalidate();
       await applyState(data, false, queueVersion);
+      // Cart set lines follow the saved set definition so checkout matches the server composition.
+      if (action === 'replaceBundles') setCart(current => current.flatMap(line => { if (line.type !== 'bundle') return [line]; const bundle = payload.bundles.find(item => item.id === line.id); return bundle ? [{ ...line, name: bundle.name, unitPrice: bundle.price, subItems: bundle.items }] : []; }));
       if (action === 'removeProduct') setCart(current => current.filter(line => line.type === 'product' ? line.id !== payload.productId : !(line.subItems || []).some(item => item.productId === payload.productId)));
       success?.(data);
       return true;
@@ -817,7 +819,7 @@ export default function App() {
 
     {screen === 'restore' && <ProjectRestorePage key={selectedProject?.id || 'standalone'} booths={workspace.booths} navigate={setScreen} onManageProject={manageProject} onSelectProject={selectProject} />}
 
-    {screen === 'pos' && <SalesPage project={selectedProject} readOnly={readOnly} purchaseTab={purchaseTab} setPurchaseTab={setPurchaseTab} visibleProducts={visibleProducts} visibleBundles={visibleBundles} creators={creators} creatorFilter={creatorFilter} setCreatorFilter={setCreatorFilter} availableStock={availableStock} bundleAvailable={bundleAvailable} addProduct={addProduct} addBundle={addBundle} cart={cart} setCart={setCart} orderExpanded={orderExpanded} setOrderExpanded={setOrderExpanded} total={total} updateCartQty={updateCartQty} saving={saving} finalizeSale={finalizeSale} canReorder={Boolean(selectedProject.permissions?.canConfigure) && !readOnly} onReorder={payload => mutate('reorderProducts', payload)} />}
+    {screen === 'pos' && <SalesPage project={selectedProject} products={products} readOnly={readOnly} purchaseTab={purchaseTab} setPurchaseTab={setPurchaseTab} visibleProducts={visibleProducts} visibleBundles={visibleBundles} creators={creators} creatorFilter={creatorFilter} setCreatorFilter={setCreatorFilter} availableStock={availableStock} bundleAvailable={bundleAvailable} addProduct={addProduct} addBundle={addBundle} cart={cart} setCart={setCart} orderExpanded={orderExpanded} setOrderExpanded={setOrderExpanded} total={total} updateCartQty={updateCartQty} saving={saving} finalizeSale={finalizeSale} canReorder={Boolean(selectedProject.permissions?.canConfigure) && !readOnly} onReorder={payload => mutate('reorderProducts', payload)} />}
 
     {screen==='settings'&&selectedProject.permissions?.canConfigure&&<div className="event-settings-tabs"><PageIntro hideTitle title="상품 관리"><PageTabs id="event-settings" label="상품 관리 메뉴" tabs={[["products","상품 관리"],["bundles","세트 관리"]]} selected={settingsTab} onSelect={setSettingsTab}/></PageIntro></div>}
     {(screen==='productNew'||screen==='settings'&&settingsTab!=='bundles')&&<PersonalInventory key={`${adminId}:${selectedProject.id}`} request={eventStockRequest} routeHash={routeHash} navigate={setScreen} event={selectedProject} eventProducts={products} eventSales={sales} onRemoveEventProduct={id=>mutate('removeProduct',{productId:id})}/>}
