@@ -1515,3 +1515,14 @@ PR #78 기반의 격리 작업 트리에서 이번 화면·장소/일정 변경�
 4173 개발 서버가 최신 컴포넌트를 제공하는 것을 읽기 전용으로 확인했다. 팝업을 네이티브 dialog에서 portal 오버레이로 변경하고 `payment popup|payout response loss` 4개 통과: 클릭 후 모달 표시·취소/재열기·금액/날짜 기록·전액 지급 후 완료 활성화·응답 유실 재확인. 빌드 통과(기존 청크 크기 경고). 브라우저 직접 조작은 앞서 도구 권한에서 차단되어 실제 화면 재현은 미확인이다.
 
 지급하기 비활성화 후속: 잔액/종료 상태에 의한 팝업 진입 차단을 제거했다. `payout button stays|settlement lifecycle starts|payout response loss` 3개 통과. 0원·전액 지급·종료 상태의 버튼 활성화와 기록 차단, 미확인 요청 잠금 보존을 확인했다. 빌드 통과(기존 청크 경고). 실제 브라우저 확인은 미실행이다.
+
+
+## 행사 설정 변경 로컬 우선 큐 (2026-11-04)
+
+`tests/settings-queue.test.js` 7개 추가·통과. PGlite의 실제 API 처리로 같은 `commandId` 재전송 무효과(세트 생성·순서 변경·상품 제거), 같은 ID 다른 내용 409, 잘못된 ID/비대상 작업 400, 다른 계정 재전송 거절, 다른 기기 세트 변경의 409(retryable 없음)와 영수증 미기록, 구성 불일치 판매의 retryable 409, 세트 수정→판매 순서일 때만 판매 성공을 확인했다. fake IndexedDB로 설정·판매의 원자 저장과 오래된 탭 거절, 응답 유실 시 같은 ID 재전송과 후속 판매 대기, 거절 명령의 `REJECTED` 보존·후속 전송·대기 건수 제외, 서버 상태+대기 명령 재구성(이미 반영된 판매 중복 차감 없음, 조회 중 큐 변경 시 폐기), retryable 409·503·401의 보존을 확인했다.
+
+관련 기존 회귀: `offline-storage`(dexie 경로만 바꾼 임시 사본으로 실행), `background-sync`, `schema` 22개 통과. `inventory.test.js`의 판매 번호·세트 번호·제거 관련 9개 통과. `product-removal.test.js`의 UI 2개는 변경하지 않은 `ProductsPage` 하네스의 `useUnsavedChanges` 목 누락으로 기존 실패. `npm run build` 통과. 실제 브라우저의 오프라인·다중 탭·다기기 검증, 실제 PostgreSQL 동시 연결 경쟁은 미실행.
+
+후속(같은 날): 세트 순서·행사 상품 등록/수정 큐와 순서 권한. `settings-queue` 8개 통과(세트 순서 리듀서, 오프라인 등록 상품의 판매·수정 재적용·중복 없음, `/api/booths`→`/api/pos` 큐 순서 전송). `booth-foundation`에 클라이언트 ID 등록·재전송 무효과·ID 재사용 409, 등록 직후 판매 성공, 개인 수정 뒤 `latest` 수정 적용(온라인 수정은 409), seller의 세트 순서 403·운영자 성공·재전송 무효과, seller/assistant `canReorder` 검증 추가·관련 5개 통과. `offline-storage`(임시 사본)·`background-sync`·`payment-confirm`·`inventory` 번호/세트/제거 관련 통과. `workspace-ui`는 44개 통과, 5개는 변경하지 않은 `EventAccessPanel`·`ProjectManagementPage` 테스트의 기존 실패. `npm run build` 통과. 내 재고 경고 alert는 자동 검증하지 않았다.
+
+오프라인 등록 미지정 제작자 고정(같은 날): 제작자 참여 종료 후에도 미지정 제작자·클라이언트 상품 ID로 큐 등록 200, 뒤이은 판매 200을 `booth-foundation` 선택 3개로 확인. `settings-queue` 8개, `workspace-ui`의 행사 등록 화면 1개, `npm run build` 통과.

@@ -114,7 +114,7 @@ export function createHandler(pool) {
     } catch(error) {
       if(client) await client.query('ROLLBACK').catch(()=>{});
       const conflict=['40001','40P01','23505'].includes(error.code);
-      return res.status(conflict?409:(error.status || 500)).json({error:conflict?'데이터가 변경되었습니다. 같은 요청으로 다시 확인해주세요.':error.status?error.message:'부스 기반 작업에 실패했습니다.'});
+      return res.status(conflict?409:(error.status || 500)).json({error:conflict?'데이터가 변경되었습니다. 같은 요청으로 다시 확인해주세요.':error.status?error.message:'부스 기반 작업에 실패했습니다.',...(conflict?{retryable:true}:{})});
     } finally {client?.release();}
   };
 }

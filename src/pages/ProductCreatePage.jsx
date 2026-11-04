@@ -67,7 +67,7 @@ export default function ProductCreatePage({ projectId, onImageChange, readOnly, 
         sessionStorage.setItem(pendingKey, JSON.stringify(request));
         pending.current = request;
         setUncertain(true);
-        await registerProduct(request);
+        await registerProduct(request, { withImage: Boolean(image) });
         sessionStorage.removeItem(pendingKey);
         pending.current = null;
         setUncertain(false);

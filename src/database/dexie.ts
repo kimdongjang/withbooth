@@ -1,6 +1,7 @@
 import Dexie, { type Table } from 'dexie';
 
-export type SyncStatus = 'PENDING' | 'SYNCING' | 'SYNCED' | 'FAILED' | 'ARCHIVED';
+// REJECTED: a queued settings change the server refused; kept as a record, never resent.
+export type SyncStatus = 'PENDING' | 'SYNCING' | 'SYNCED' | 'FAILED' | 'ARCHIVED' | 'REJECTED';
 
 export interface StoredOrder<TPayload = unknown> {
   id?: number;
@@ -13,6 +14,9 @@ export interface StoredOrder<TPayload = unknown> {
   syncStatus: SyncStatus;
   retryCount: number;
   lastSyncAt?: string | null;
+  lastError?: string | null;
+  // API path for queued settings commands sent outside /api/pos (event products).
+  endpoint?: string;
 }
 
 export interface StoredPosState<TState = unknown> {

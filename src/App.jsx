@@ -39,6 +39,7 @@ import { createEventReadCache } from './data/eventReadCache';
 import { useSync } from './hooks/useSync';
 import { createLocalOrderId } from './utils/orderId';
 import { SYNC_INTERVAL_MS } from './sync/backgroundSync';
+import { applyQueuedCommand, bundleCommands, isQueuedSettings, queuedEndpoint, productsAfterSale as soldProducts, productsAfterVoidSale as restoredProducts, rebasePending } from './sync/queuedCommands';
 
 const AUTH_TOKEN_KEY = 'pos_admin_token';
 const AUTH_ADMIN_KEY = 'pos_admin_id';
@@ -164,7 +165,7 @@ export default function App() {
     return () => channel.close();
   }, [token, adminId, selectedProject?.id]);
   const eventReads=useMemo(()=>createEventReadCache({scope:{actorId:adminId,boothId:selectedProject?.boothId,projectId:selectedProject?.id},request:requestJson,isCurrent:()=>activeScope.current===scope}),[token,adminId,selectedProject?.boothId,selectedProject?.id]);
-  const sync = useSync({ enabled: Boolean(token && selectedProject?.id && readyScope === scope && !readOnly && selectedProject?.permissions?.canSell), refreshEnabled: Boolean(token && selectedProject?.id && readyScope === scope), onRefresh: async () => {const accepted=await loadState({background:true});return accepted===false?false:eventReads.refresh({activeOnly:true});}, getAuthToken, projectId: selectedProject?.id, actorId: adminId, boothId: selectedProject?.boothId });
+  const sync = useSync({ enabled: Boolean(token && selectedProject?.id && readyScope === scope && !readOnly && (selectedProject?.permissions?.canSell || selectedProject?.permissions?.canConfigure)), refreshEnabled: Boolean(token && selectedProject?.id && readyScope === scope), onRefresh: async () => {const accepted=await loadState({background:true});return accepted===false?false:eventReads.refresh({activeOnly:true});}, getAuthToken, projectId: selectedProject?.id, actorId: adminId, boothId: selectedProject?.boothId });
   const stateReads = useRef(new Map());
   const workspaceReads = useRef(new Map());
 
@@ -434,27 +435,68 @@ export default function App() {
     setAdminId(data.admin?.id || credentials.id);
     // The route effect resolves the saved event after the account workspace has loaded.
   };
+  // Online-only changes need an empty queue; flush the current event first so a
+  // queued settings change does not block the next server action.
+  const waitForQueue = async projectIds => {
+    const waiting = () => Promise.all(projectIds.map(id => orderRepository.countWaiting(id))).then(values => values.some(Boolean));
+    if (!await waiting()) return false;
+    if (navigator.onLine && projectIds.includes(selectedProject?.id)) await sync.syncNow();
+    return waiting();
+  };
+  // Cart lines follow the current set definitions so checkout matches the saved composition.
+  const reconcileCart = (nextProducts, nextBundles) => setCart(current => current.flatMap(line => {
+    if (line.type === 'product') return nextProducts.some(product => product.id === line.id) ? [line] : [];
+    const bundle = nextBundles.find(item => item.id === line.id);
+    return bundle && bundle.items.every(item => nextProducts.some(product => product.id === item.productId)) ? [{ ...line, name: bundle.name, unitPrice: bundle.price, subItems: bundle.items }] : [];
+  }));
+  // Settings changes are applied to the local projection and queued in the same
+  // IndexedDB transaction, behind any earlier sale, then sent by the sync cycle.
+  const queueSettings = async commands => {
+    const projectId = selectedProject.id;
+    const createdAt = new Date().toISOString();
+    const rows = commands.map(({ action, payload, localDisplay }) => {
+      const localOrderId = `cfg_${globalThis.crypto?.randomUUID?.() || createLocalOrderId()}`;
+      const endpoint = queuedEndpoint(action);
+      return { projectId, actorId: adminId, boothId: selectedProject.boothId || null, localOrderId, createdAt, syncStatus: 'PENDING', retryCount: 0, lastSyncAt: null,
+        ...(endpoint === '/api/pos' ? {} : { endpoint }),
+        payload: { protocolVersion: 2, actorId: adminId, boothId: selectedProject.boothId || undefined, projectId, dataRevision, action, commandId: localOrderId, payload, ...(localDisplay ? { localDisplay } : {}) } };
+    });
+    const before = { products, bundles, sales, dataRevision };
+    const next = rows.reduce((state, row) => applyQueuedCommand(state, row.payload), before);
+    await stateRepository.commitCommands(projectId, rows, before, { products: next.products, bundles: next.bundles, sales: next.sales, dataRevision, archivedAt: selectedProject.archivedAt || null });
+    if (activeScope.current !== scope) return false;
+    setProducts(next.products);
+    setBundles(next.bundles);
+    reconcileCart(next.products, next.bundles);
+    void refreshAndSyncOrders();
+    return next;
+  };
   const mutate = async (action, payload, success) => {
     if (readOnly) return alert('보관된 행사입니다. 프로젝트 관리에서 보관을 해제해주세요.');
     if (!selectedProject?.id) return alert('프로젝트를 먼저 선택해주세요.');
+    if (['reorderProducts', 'reorderBundles'].includes(action) && !selectedProject.permissions?.canReorder) { alert('순서 변경은 운영자와 부운영자만 할 수 있습니다.'); return false; }
     if (saving) return;
     setSaving(true);
     setError('');
     try {
-      if (['resetDefaults', 'upsertDefaults', 'replaceProducts', 'replaceBundles', 'clearSales', 'updateProductImage', 'removeProduct', 'reorderProducts', 'reorderBundles'].includes(action)) {
-        const waiting = await orderRepository.countWaiting(selectedProject.id);
-        if (waiting > 0) throw new Error('미동기화 주문이 남아 있습니다. 주문 동기화를 완료한 뒤 상품·세트 변경을 다시 시도해주세요.');
+      const commands = action === 'replaceBundles' ? bundleCommands(bundles, payload.bundles) : [{ action, payload }];
+      if (commands.every(command => isQueuedSettings(command))) {
+        if (!commands.length) return true;
+        const next = await queueSettings(commands);
+        if (!next) return false;
+        success?.(next);
+        return true;
       }
-      if (action === 'updateProductImage' && (await Promise.all(projects.map(project => orderRepository.countWaiting(project.id)))).some(Boolean)) throw new Error('공통 상품 수정 전 모든 행사의 미동기화 주문을 먼저 동기화해주세요.');
+      if (['resetDefaults', 'upsertDefaults', 'replaceProducts', 'replaceBundles', 'clearSales', 'updateProductImage', 'removeProduct', 'reorderProducts'].includes(action)) {
+        if (await waitForQueue([selectedProject.id])) throw new Error('미동기화 주문이 남아 있습니다. 주문 동기화를 완료한 뒤 상품·세트 변경을 다시 시도해주세요.');
+      }
+      if (action === 'updateProductImage' && await waitForQueue(projects.map(project => project.id))) throw new Error('공통 상품 수정 전 모든 행사의 미동기화 주문을 먼저 동기화해주세요.');
       if (activeScope.current !== scope) return false;
       const queueVersion = await stateRepository.queueVersion(selectedProject.id);
       const data = await requestJson('/api/pos', { method: 'POST', body: JSON.stringify({ projectId: selectedProject.id, dataRevision, action, payload }) });
       if (activeScope.current !== scope) return;
       await eventReads.invalidate();
       await applyState(data, false, queueVersion);
-      // Cart set lines follow the saved set definition so checkout matches the server composition.
-      if (action === 'replaceBundles') setCart(current => current.flatMap(line => { if (line.type !== 'bundle') return [line]; const bundle = payload.bundles.find(item => item.id === line.id); return bundle ? [{ ...line, name: bundle.name, unitPrice: bundle.price, subItems: bundle.items }] : []; }));
-      if (action === 'removeProduct') setCart(current => current.filter(line => line.type === 'product' ? line.id !== payload.productId : !(line.subItems || []).some(item => item.productId === payload.productId)));
       success?.(data);
       return true;
     } catch (err) {
@@ -465,6 +507,46 @@ export default function App() {
       setSaving(false);
     }
   };
+  // Event product registration/edit from the product screens: saved locally first,
+  // sent in queue order. Only for operators/assistants, whose devices run the queue.
+  const queueEventProduct = async (action, payload, localDisplay) => {
+    if (readOnly) throw new Error('보관되었거나 정산이 마감된 행사입니다.');
+    if (saving) throw new Error('다른 변경을 저장하고 있습니다. 잠시 후 다시 시도해주세요.');
+    setSaving(true);
+    setError('');
+    try {
+      const next = await queueSettings([{ action, payload, localDisplay }]);
+      if (!next) throw new Error('화면이 변경되었습니다. 다시 시도해주세요.');
+      return next;
+    } finally {
+      setSaving(false);
+    }
+  };
+  // A rejected settings change: show the server state plus what is still queued.
+  const revertRejected = async rejection => {
+    const projectId = selectedProject?.id;
+    if (!projectId || rejection.projectId !== projectId) return;
+    setError(rejection.error);
+    showToast(rejection.error, 'error');
+    try {
+      const queueVersion = await stateRepository.queueVersion(projectId);
+      const data = await requestJson(`/api/pos?projectId=${encodeURIComponent(projectId)}&boothId=${encodeURIComponent(selectedProject.boothId || '')}`, { background: true, signal: AbortSignal.timeout(20_000) });
+      if (activeScope.current !== scope) return;
+      const next = await stateRepository.rebaseRemote(projectId, { ...data, products: (data.products || []).map(normalizeProductForClient), dataRevision: data.dataRevision || null }, queueVersion, rebasePending);
+      if (!next || activeScope.current !== scope) return;
+      await applyState(next, true);
+      reconcileCart(next.products, next.bundles);
+    } catch (err) {
+      console.warn('[sync] failed to restore the server state after a rejected change', err);
+    }
+  };
+  const handledRejection = useRef(null);
+  useEffect(() => {
+    const rejection = sync.lastRejection;
+    if (!rejection || handledRejection.current === rejection.at) return;
+    handledRejection.current = rejection.at;
+    void revertRejected(rejection);
+  }, [sync.lastRejection?.at]);
 
   const inventoryApi = async (action, payload = {}) => {
     if (!navigator.onLine) throw new Error('상품·재고는 인터넷 연결이 필요합니다.');
@@ -474,8 +556,8 @@ export default function App() {
       if (payload.apply && activeScope.current === scope && payload.projectId === selectedProject?.id) await applyState(data, false, queueVersion);
       return data;
     }
-    if (['saveInventory','saveEventProduct','importInventory','recordStockMovement'].includes(action) && (await Promise.all(projects.map(project => orderRepository.countWaiting(project.id)))).some(Boolean)) throw new Error('공통 상품 수정 전 모든 행사의 미동기화 주문을 먼저 동기화해주세요.');
-    if (['transferInventory', 'createEventProduct'].includes(action) && await orderRepository.countWaiting(payload.projectId)) throw new Error('이 행사의 미동기화 주문을 먼저 동기화해주세요.');
+    if (['saveInventory','saveEventProduct','importInventory','recordStockMovement'].includes(action) && await waitForQueue(projects.map(project => project.id))) throw new Error('공통 상품 수정 전 모든 행사의 미동기화 주문을 먼저 동기화해주세요.');
+    if (['transferInventory', 'createEventProduct'].includes(action) && await waitForQueue([payload.projectId])) throw new Error('이 행사의 미동기화 주문을 먼저 동기화해주세요.');
     if (action === 'createEventProduct' && readOnly) throw new Error('보관된 행사에는 상품을 등록할 수 없습니다.');
     const queueVersionBefore = ['createEventProduct','transferInventory','saveEventProduct','saveInventory','recordStockMovement','importInventory'].includes(action) && selectedProject?.id ? await stateRepository.queueVersion(selectedProject.id) : null;
     if (activeScope.current !== scope) throw new Error('화면이 변경되었습니다. 다시 시도해주세요.');
@@ -490,6 +572,8 @@ export default function App() {
     return data;
   };
 
+  const waitForQueueRef=useRef(waitForQueue);
+  waitForQueueRef.current=waitForQueue;
   const sharedStockContext=useRef(null);
   sharedStockContext.current={projects,selectedProject,scope,applyState};
   const readDashboardWaiting=useCallback(async projectId=>{
@@ -502,7 +586,7 @@ export default function App() {
     const {payload={}}=JSON.parse(options.body);
     const before=sharedStockContext.current;
     const projectIds=[...new Set([...before.projects.map(p=>p.id),...(payload.allocations||[]).map(a=>a.projectId),payload.projectId,payload.currentProjectId,payload.fromProjectId].filter(Boolean))];
-    if((await Promise.all(projectIds.map(id=>orderRepository.countWaiting(id)))).some(Boolean))throw Object.assign(new Error('미동기화 주문을 먼저 동기화해주세요.'),{status:409});
+    if(await waitForQueueRef.current(projectIds))throw Object.assign(new Error('미동기화 주문을 먼저 동기화해주세요.'),{status:409});
     if(activeToken.current!==token)throw Object.assign(new Error('로그인 계정이 변경되었습니다.'),{status:403});
     const queueVersion=before.selectedProject?await stateRepository.queueVersion(before.selectedProject.id):null;
     if(activeToken.current!==token)throw Object.assign(new Error('로그인 계정이 변경되었습니다.'),{status:403});
@@ -586,41 +670,8 @@ export default function App() {
       return next;
     });
   };
-  const productsAfterSale = (sourceProducts, saleCart) => {
-    const soldByProduct = new Map();
-    for (const line of saleCart) {
-      if (line.type === 'product') soldByProduct.set(line.id, (soldByProduct.get(line.id) || 0) + Number(line.qty || 0));
-      if (line.type === 'bundle') {
-        for (const item of line.subItems || []) {
-          soldByProduct.set(item.productId, (soldByProduct.get(item.productId) || 0) + Number(item.qty || 0) * Number(line.qty || 0));
-        }
-      }
-    }
-
-    return sourceProducts.map((product) => ({
-      ...product,
-      stock: Math.max(0, Number(product.stock || 0) - Number(soldByProduct.get(product.id) || 0)),
-      stockQty: Math.max(0, Number(product.stockQty ?? product.stock ?? 0) - Number(soldByProduct.get(product.id) || 0)),
-    }));
-  };
-  const productsAfterVoidSale = (sourceProducts, sale) => {
-    const restoredByProduct = new Map();
-    for (const line of sale.lines || []) {
-      if (line.type === 'product') restoredByProduct.set(line.id, (restoredByProduct.get(line.id) || 0) + Number(line.qty || 0));
-      if (line.type === 'bundle') {
-        const bundle = bundles.find((b) => b.id === line.id);
-        for (const item of line.subItems || bundle?.items || []) {
-          restoredByProduct.set(item.productId, (restoredByProduct.get(item.productId) || 0) + Number(item.qty || 0) * Number(line.qty || 0));
-        }
-      }
-    }
-
-    return sourceProducts.map((product) => ({
-      ...product,
-      stock: Number(product.stock || 0) + Number(restoredByProduct.get(product.id) || 0),
-      stockQty: Number(product.stockQty ?? product.stock ?? 0) + Number(restoredByProduct.get(product.id) || 0),
-    }));
-  };
+  const productsAfterSale = (sourceProducts, saleCart) => soldProducts(sourceProducts, saleCart);
+  const productsAfterVoidSale = (sourceProducts, sale) => restoredProducts(sourceProducts, bundles, sale);
   const refreshAndSyncOrders = async () => {
     try {
       await sync.refreshPendingCount();
@@ -818,10 +869,10 @@ export default function App() {
 
     {screen === 'restore' && <ProjectRestorePage key={selectedProject?.id || 'standalone'} booths={workspace.booths} navigate={setScreen} onManageProject={manageProject} onSelectProject={selectProject} />}
 
-    {screen === 'pos' && <SalesPage project={selectedProject} products={products} readOnly={readOnly} purchaseTab={purchaseTab} setPurchaseTab={setPurchaseTab} visibleProducts={visibleProducts} visibleBundles={visibleBundles} creators={creators} creatorFilter={creatorFilter} setCreatorFilter={setCreatorFilter} availableStock={availableStock} bundleAvailable={bundleAvailable} addProduct={addProduct} addBundle={addBundle} cart={cart} setCart={setCart} orderExpanded={orderExpanded} setOrderExpanded={setOrderExpanded} total={total} updateCartQty={updateCartQty} saving={saving} finalizeSale={finalizeSale} canReorder={Boolean(selectedProject.permissions?.canConfigure) && !readOnly} onReorder={payload => mutate('reorderProducts', payload)} onReorderBundles={payload => mutate('reorderBundles', payload)} />}
+    {screen === 'pos' && <SalesPage project={selectedProject} products={products} readOnly={readOnly} purchaseTab={purchaseTab} setPurchaseTab={setPurchaseTab} visibleProducts={visibleProducts} visibleBundles={visibleBundles} creators={creators} creatorFilter={creatorFilter} setCreatorFilter={setCreatorFilter} availableStock={availableStock} bundleAvailable={bundleAvailable} addProduct={addProduct} addBundle={addBundle} cart={cart} setCart={setCart} orderExpanded={orderExpanded} setOrderExpanded={setOrderExpanded} total={total} updateCartQty={updateCartQty} saving={saving} finalizeSale={finalizeSale} canReorder={Boolean(selectedProject.permissions?.canReorder) && !readOnly} onReorder={payload => mutate('reorderProducts', payload)} onReorderBundles={payload => mutate('reorderBundles', payload)} />}
 
     {(screen==='settings'||screen==='bundles'&&!routeBundleNumber)&&selectedProject.permissions?.canConfigure&&<div className="event-settings-tabs"><PageIntro hideTitle title={screen==='bundles'?'세트 관리':'상품 관리'}><PageTabs id="event-settings" label="상품 관리 메뉴" tabs={[["products","상품 관리"],["bundles","세트 관리"]]} selected={settingsTab} onSelect={tab=>setScreen(tab==='bundles'?'bundles':'settings')}/></PageIntro></div>}
-    {(screen==='productNew'||screen==='settings')&&<PersonalInventory key={`${adminId}:${selectedProject.id}`} request={eventStockRequest} routeHash={routeHash} navigate={setScreen} event={selectedProject} eventProducts={products} eventSales={sales} onRemoveEventProduct={id=>mutate('removeProduct',{productId:id})}/>}
+    {(screen==='productNew'||screen==='settings')&&<PersonalInventory key={`${adminId}:${selectedProject.id}`} request={eventStockRequest} routeHash={routeHash} navigate={setScreen} event={selectedProject} eventProducts={products} eventSales={sales} onRemoveEventProduct={id=>mutate('removeProduct',{productId:id})} queueEventProduct={selectedProject.permissions?.canConfigure&&!readOnly?queueEventProduct:undefined}/>}
     {(screen==='bundleNew'||screen==='bundles')&&selectedProject.permissions?.canConfigure && <ProductsPage adminId={adminId} inventoryApi={inventoryApi} dataRevision={dataRevision} projectName={selectedProject.name} initialProductId={routeProductId} registerProduct={product => inventoryApi('createEventProduct', { projectId: selectedProject.id, dataRevision, product })} creatingProduct={screen === 'productNew'} creatingBundle={screen === 'bundleNew'} navigate={setScreen} routeBundleNumber={routeBundleNumber} readOnly={readOnly} key={selectedProject.id} projectId={selectedProject.id} settingsTab={settingsTab} saving={saving} mutate={mutate} products={products} bundles={bundles} sales={sales} persistProducts={persistProducts} persistBundles={persistBundles} bundleName={bundleName} setBundleName={setBundleName} bundleRows={bundleRows} setBundleRows={setBundleRows} bundlePrice={bundlePrice} setBundlePrice={setBundlePrice} addBundleToSettings={addBundleToSettings} />}
 
     {screen==='log'&&selectedProject&&!selectedProject.permissions?.canSettle&&!selectedProject.permissions?.canViewPos&&<PersonalOverview request={eventReads.request} projectId={selectedProject.id}/>}

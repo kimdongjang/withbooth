@@ -29,7 +29,9 @@ export async function initArtistStock(sql) {
 
 async function itemFor(sql,ownerId,id) {
   const items=(await sql`SELECT i.* FROM pos_inventory i JOIN pos_inventory_owners o ON o.admin_id=i.admin_id AND o.inventory_id=i.id WHERE o.owner_id=${ownerId}`).rows;
-  const row=items.find(i=>stockId(i)===id);
+  // The raw inventory ID also resolves (owner-scoped), so a change queued after an
+  // offline registration can name the item before its stock ID is known.
+  const row=items.find(i=>stockId(i)===id)||items.find(i=>i.id===id);
   if(!row)fail('제작자 재고를 찾을 수 없습니다.',404);
   return row;
 }
@@ -184,7 +186,7 @@ async function bindIdentity(sql,owner,boothId,projectId,productId) {
     VALUES(${projectId},${productId},${owner.id},${recipient.id},'inventory') ON CONFLICT DO NOTHING`;
 }
 
-async function setAllocation(sql,userId,owner,item,projectId,quantity,boothId,price,{registering=false}={}) {
+async function setAllocation(sql,userId,owner,item,projectId,quantity,boothId,price,{registering=false,productId:clientProductId=null}={}) {
   const source=await sharedInventorySource(sql,item),balance=inventoryBalance(source,item);
   const previous=balance.allocations.find(a=>a.projectId===projectId);
   const delta=quantity-(previous?.initial||0);
@@ -195,7 +197,7 @@ async function setAllocation(sql,userId,owner,item,projectId,quantity,boothId,pr
   if(!integer(quantity)||!integer(price??item.product.price??0))fail('배정 수량과 가격은 0 이상의 정수여야 합니다.',400);
   let productId=previous?.productId;
   if(!productId) {
-    productId=randomUUID();
+    productId=clientProductId||randomUUID();
     await sql`INSERT INTO pos_products(project_id,id,name,price,stock,stock_qty,initial_stock_qty,creator_name,goods_type,vtuber_name,genre,is_active)
       VALUES(${projectId},${productId},${item.product.name},${price??Number(item.product.price||0)},0,0,0,${owner.display_name},${item.product.goodsType??item.product.name},${item.product.vtuberName||''},${item.product.genre||''},TRUE)`;
     await sql`INSERT INTO pos_inventory_links(project_id,product_id,admin_id,inventory_id) VALUES(${projectId},${productId},${item.admin_id},${item.id})`;
@@ -209,7 +211,7 @@ async function setAllocation(sql,userId,owner,item,projectId,quantity,boothId,pr
   return {projectId,productId,before:previous?.initial||0,after:quantity,warehouseDelta:-delta};
 }
 
-export async function createArtistStock(sql,userId,payload,{registering=false}={}) {
+export async function createArtistStock(sql,userId,payload,{registering=false,inventoryId=null,productId=null}={}) {
   const {ownerId,boothId,projectId,name,price,quantity}=payload;
   const access=await ownerAccess(sql,userId,ownerId,boothId);
   const sourceAdmin=access.owner.linked_user_id||(await sql`SELECT legacy_admin_id FROM pos_booths WHERE id=${access.owner.origin_booth_id}`).rows[0]?.legacy_admin_id;
@@ -219,11 +221,11 @@ export async function createArtistStock(sql,userId,payload,{registering=false}={
   if(typeof name!=='string'||!name.trim()||name.trim().length>100||!integer(price)||!integer(quantity))fail('상품명·정수 가격·수량을 확인해주세요.',400);
   if(projectId)await eventAccess(sql,userId,ownerId,projectId,boothId,{registering});
   const item=(await sql`INSERT INTO pos_inventory(admin_id,id,product,stock,total_received)
-    VALUES(${sourceAdmin},${randomUUID()},${JSON.stringify({name:name.trim(),goodsType:String(payload.goodsType??name).slice(0,100),vtuberName:String(payload.vtuberName||'').slice(0,100),genre:String(payload.genre||'').slice(0,100),cost:integer(payload.cost)?payload.cost:0,price,creatorName:owner.display_name,createdAt:new Date().toISOString()})}::jsonb,${quantity},${quantity}) RETURNING *`).rows[0];
+    VALUES(${sourceAdmin},${inventoryId||randomUUID()},${JSON.stringify({name:name.trim(),goodsType:String(payload.goodsType??name).slice(0,100),vtuberName:String(payload.vtuberName||'').slice(0,100),genre:String(payload.genre||'').slice(0,100),cost:integer(payload.cost)?payload.cost:0,price,creatorName:owner.display_name,createdAt:new Date().toISOString()})}::jsonb,${quantity},${quantity}) RETURNING *`).rows[0];
   await sql`INSERT INTO pos_inventory_owners(admin_id,inventory_id,owner_id) VALUES(${sourceAdmin},${item.id},${ownerId})`;
   await activate(sql,item);
   let allocation;
-  if(projectId)allocation=await setAllocation(sql,userId,owner,item,projectId,quantity,boothId,price,{registering});
+  if(projectId)allocation=await setAllocation(sql,userId,owner,item,projectId,quantity,boothId,price,{registering,productId});
   const saved=(await sql`SELECT * FROM pos_inventory WHERE admin_id=${item.admin_id} AND id=${item.id}`).rows[0];
   return receipt(sql,userId,'createArtistStock',payload,prior.fingerprint,{inventory:await projection(sql,saved,ownerId,boothId),allocation,change:{before:0,after:quantity,reason:'receipt'}});
 }
@@ -432,7 +434,12 @@ export async function registerEventArtistProduct(sql,userId,payload) {
  const fingerprint=hash({userId,action:'registerEventArtistProduct',payload});
  const prior=(await sql`SELECT * FROM pos_event_access_commands WHERE id=${requestId}`).rows[0];
  if(prior){if(prior.actor_id!==userId||prior.project_id!==projectId||prior.fingerprint!==fingerprint)fail('같은 요청 ID의 내용이 다릅니다.');return prior.result;}
- let ownerId=payload.ownerId;
+ // Offline registration: the client chooses the inventory and event product IDs so
+ // sales queued after it can reference the product before the server has seen it.
+ const {inventoryId=null,productId=null}=payload;
+ if(inventoryId!=null&&!uuid(inventoryId)||productId!=null&&!uuid(productId))fail('상품 ID를 확인해주세요.',400);
+ if(inventoryId&&(await sql`SELECT id FROM pos_inventory WHERE id=${inventoryId}`).rows.length||productId&&(await sql`SELECT id FROM pos_products WHERE project_id=${projectId} AND id=${productId}`).rows.length)fail('이미 사용 중인 상품 ID입니다.');
+ const register=async({ownerId,artistName,unassigned})=>{
  if(unassigned) {
   ownerId=(await ensureUnassignedOwner(sql,boothId,projectId)).id;
  } else if(artistName!==undefined) {
@@ -459,7 +466,9 @@ export async function registerEventArtistProduct(sql,userId,payload) {
  }
  const key=hash({requestId,action:'createArtistStock'});
  const stockRequestId=`${key.slice(0,8)}-${key.slice(8,12)}-${key.slice(12,16)}-${key.slice(16,20)}-${key.slice(20,32)}`;
- const result=await createArtistStock(sql,userId,{...payload,ownerId,artistName:undefined,requestId:stockRequestId},{registering:true});
+ return createArtistStock(sql,userId,{...payload,ownerId,artistName:undefined,inventoryId:undefined,productId:undefined,requestId:stockRequestId},{registering:true,inventoryId,productId});
+ };
+ const result=await register({ownerId:payload.ownerId,artistName,unassigned});
  await sql`INSERT INTO pos_event_access_commands(id,actor_id,project_id,fingerprint,result) VALUES(${requestId},${userId},${projectId},${fingerprint},${JSON.stringify(result)}::jsonb)`;
  return result;
 }
@@ -470,13 +479,15 @@ export async function saveEventArtistProduct(sql,userId,payload) {
  let item=await itemFor(sql,ownerId,id);
  await lockScope(sql,userId,ownerId,boothId,item,[projectId],false,false);
  const prior=await replay(sql,userId,'saveEventArtistProduct',payload);if(prior.result)return prior.result;
- if(item.version!==version)fail('상품이 변경되었습니다. 새로고침해주세요.');
+ // latest: a change queued on the event device wins over edits made meanwhile in personal inventory.
+ const current=payload.latest===true?item.version:version;
+ if(item.version!==current)fail('상품이 변경되었습니다. 새로고침해주세요.');
  await eventAccess(sql,userId,ownerId,projectId,boothId);
  if(!product||!integer(product.price))fail('행사 판매가를 확인해주세요.',400);
  if(product.creatorName!==item.product.creatorName)fail('제작자 매핑은 행사 관리에서 변경해주세요.',400);
  const subId=step=>{const key=hash({requestId:payload.requestId,step});return `${key.slice(0,8)}-${key.slice(8,12)}-${key.slice(12,16)}-${key.slice(16,20)}-${key.slice(20,32)}`;};
  if(['name','vtuberName','goodsType','genre'].some(key=>product[key]!==item.product[key])) {
-  await saveArtistProduct(sql,userId,{ownerId,boothId,id,version,product:{...item.product,...product,price:item.product.price},requestId:subId('original')});
+  await saveArtistProduct(sql,userId,{ownerId,boothId,id,version:current,product:{...item.product,...product,price:item.product.price},requestId:subId('original')});
   item=await itemFor(sql,ownerId,id);
  }
  const balance=inventoryBalance(await sharedInventorySource(sql,item),item);
