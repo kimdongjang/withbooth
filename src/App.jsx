@@ -29,7 +29,7 @@ import ProjectManagementPage from './pages/ProjectManagementPage';
 import ProjectRestorePage from './pages/ProjectRestorePage';
 import { AppHeader, PageIntro, PageTabs } from './components/PageLayout';
 import { Input } from './components/PosUI';
-import { pagePaths, pageTitles, projectPages, pageForHash, productIdForHash, usePageRoute } from './hooks/usePageRoute';
+import { pagePaths, pageTitles, projectPages, pageForHash, productIdForHash, bundleNumberForHash, usePageRoute } from './hooks/usePageRoute';
 import { uid, won, creatorNameOf, eventCreatorNameOf, productNameFromFields, productNameWithoutCreator, normalizeProductForClient, compareProductSaleNumber } from './utils/productDisplay';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { orderRepository } from './database/orderRepository';
@@ -86,8 +86,9 @@ export default function App() {
   const loginReturnPath = useRef(!token && pageForHash(routeHash) && !['login','signup'].includes(routePage) ? routeHash.slice(1) : null);
   const rememberProject = project => rememberLastEvent(localStorage, adminId, import.meta.env.MODE, project);
   const routeParams = new URLSearchParams(routeHash.split('?')[1] || '');
-  const linkedProjectId = ['pos','project','projectSettlement','log', 'settings'].includes(routePage) ? routeParams.get('projectId') : null;
+  const linkedProjectId = ['pos','project','projectSettlement','log', 'settings', 'bundles'].includes(routePage) ? routeParams.get('projectId') : null;
   const routeProductId = routePage === 'settings' ? productIdForHash(routeHash) || routeParams.get('productId') || '' : '';
+  const routeBundleNumber = routePage === 'bundles' ? bundleNumberForHash(routeHash) : null;
   const screen = selectedProject || linkedProjectId || ['restore', 'projectNew', 'inventory', 'account', 'dashboard', 'revenue', 'artistStock', 'invite'].includes(routePage) ? routePage : 'projects';
   const [orderExpanded, setOrderExpanded] = useState(false);
 
@@ -109,7 +110,7 @@ export default function App() {
     }
     if(selectedProject?.permissions&&!['inventory','account','dashboard','revenue','projects','projectNew','artistStock','invite'].includes(routePage)) {
       const p=selectedProject.permissions;
-      if(routePage==='pos'&&!p.canSell&&!p.canViewPos||routePage==='log'&&!p.canSettle&&!p.canViewPos&&!p.canReadOwnHistory&&!p.ownerIds?.length||projectPages.includes(routePage)&&!p.canManage||['settings','bundleNew','productNew'].includes(routePage)&&!p.canConfigure&&!p.ownerIds?.length){setScreen(eventDestination(selectedProject),true);return;}
+      if(routePage==='pos'&&!p.canSell&&!p.canViewPos||routePage==='log'&&!p.canSettle&&!p.canViewPos&&!p.canReadOwnHistory&&!p.ownerIds?.length||projectPages.includes(routePage)&&!p.canManage||['settings','productNew'].includes(routePage)&&!p.canConfigure&&!p.ownerIds?.length||['bundles','bundleNew'].includes(routePage)&&!p.canConfigure){setScreen(eventDestination(selectedProject),true);return;}
     }
     if(routePage==='artistStock'){setScreen('inventory',true);return;}
     if (!selectedProject && !linkedProjectId && !['projects', 'projectNew', 'restore', 'inventory', 'account', 'dashboard', 'revenue', 'artistStock', 'invite'].includes(routePage)) setScreen('projects', true);
@@ -117,8 +118,8 @@ export default function App() {
     document.title = `${pageTitles[screen]} · 위드부스`;
     document.querySelector('.page-heading h1')?.focus();
   }, [screen, routePage, routeHash, token, loading, projectLoading, selectedProject?.id, selectedProject?.permissions?.canSell, selectedProject?.permissions?.canViewPos, selectedProject?.permissions?.canSettle, selectedProject?.permissions?.canReadOwnHistory, selectedProject?.permissions?.canManage, selectedProject?.permissions?.canConfigure, selectedProject?.permissions?.ownerIds?.length, setScreen]);
-  const [settingsTab, setSettingsTab] = useState('products');
-  useEffect(() => { if (screen === 'settings' && (linkedProjectId || routeProductId)) setSettingsTab('products'); else if (screen === 'bundleNew') setSettingsTab('bundles'); else if (screen === 'productNew') setSettingsTab('products'); }, [screen, selectedProject?.id, linkedProjectId, routeProductId]);
+  // Products and sets have their own routes; the tab follows the route.
+  const settingsTab = ['bundles', 'bundleNew'].includes(screen) ? 'bundles' : 'products';
   const [products, setProducts] = useState([]);
   const [bundles, setBundles] = useState([]);
   const [sales, setSales] = useState([]);
@@ -134,7 +135,6 @@ export default function App() {
   useEffect(() => {
     setCreatorFilter('all');
     setPurchaseTab('products');
-    setSettingsTab(screen === 'bundleNew' ? 'bundles' : 'products');
     setLogCreatorFilter('all');
     setBundleRows([{ productId: '', qty: 1 }]);
     setBundleName('');
@@ -683,8 +683,7 @@ export default function App() {
     if (!saved) return;
     clearRegistration();
     setBundleName(''); setBundlePrice(''); setBundleRows([{ productId: '', qty: 1 }]);
-    setSettingsTab('bundles');
-    setScreen('settings');
+    setScreen('bundles');
   };
   const exportCsv = () => {
     const rows = sales.map((sale) => `"${new Date(sale.time).toLocaleString('ko-KR')}","${sale.method === 'cash' ? '현금' : '계좌이체'}","${sale.lines.map((l) => `${l.name} x${l.qty}`).join(' / ')}",${sale.total}`);
@@ -821,9 +820,9 @@ export default function App() {
 
     {screen === 'pos' && <SalesPage project={selectedProject} products={products} readOnly={readOnly} purchaseTab={purchaseTab} setPurchaseTab={setPurchaseTab} visibleProducts={visibleProducts} visibleBundles={visibleBundles} creators={creators} creatorFilter={creatorFilter} setCreatorFilter={setCreatorFilter} availableStock={availableStock} bundleAvailable={bundleAvailable} addProduct={addProduct} addBundle={addBundle} cart={cart} setCart={setCart} orderExpanded={orderExpanded} setOrderExpanded={setOrderExpanded} total={total} updateCartQty={updateCartQty} saving={saving} finalizeSale={finalizeSale} canReorder={Boolean(selectedProject.permissions?.canConfigure) && !readOnly} onReorder={payload => mutate('reorderProducts', payload)} />}
 
-    {screen==='settings'&&selectedProject.permissions?.canConfigure&&<div className="event-settings-tabs"><PageIntro hideTitle title="상품 관리"><PageTabs id="event-settings" label="상품 관리 메뉴" tabs={[["products","상품 관리"],["bundles","세트 관리"]]} selected={settingsTab} onSelect={setSettingsTab}/></PageIntro></div>}
-    {(screen==='productNew'||screen==='settings'&&settingsTab!=='bundles')&&<PersonalInventory key={`${adminId}:${selectedProject.id}`} request={eventStockRequest} routeHash={routeHash} navigate={setScreen} event={selectedProject} eventProducts={products} eventSales={sales} onRemoveEventProduct={id=>mutate('removeProduct',{productId:id})}/>}
-    {(screen==='bundleNew'||screen==='settings'&&settingsTab==='bundles')&&selectedProject.permissions?.canConfigure && <ProductsPage adminId={adminId} inventoryApi={inventoryApi} dataRevision={dataRevision} projectName={selectedProject.name} initialProductId={routeProductId} registerProduct={product => inventoryApi('createEventProduct', { projectId: selectedProject.id, dataRevision, product })} creatingProduct={screen === 'productNew'} creatingBundle={screen === 'bundleNew'} navigate={async (page, tab = 'bundles') => { if (!await allowNavigation()) return; setSettingsTab(tab); await setScreen(page); }} readOnly={readOnly} key={selectedProject.id} projectId={selectedProject.id} settingsTab={settingsTab} setSettingsTab={setSettingsTab} saving={saving} mutate={mutate} products={products} bundles={bundles} sales={sales} persistProducts={persistProducts} persistBundles={persistBundles} bundleName={bundleName} setBundleName={setBundleName} bundleRows={bundleRows} setBundleRows={setBundleRows} bundlePrice={bundlePrice} setBundlePrice={setBundlePrice} addBundleToSettings={addBundleToSettings} />}
+    {(screen==='settings'||screen==='bundles'&&!routeBundleNumber)&&selectedProject.permissions?.canConfigure&&<div className="event-settings-tabs"><PageIntro hideTitle title={screen==='bundles'?'세트 관리':'상품 관리'}><PageTabs id="event-settings" label="상품 관리 메뉴" tabs={[["products","상품 관리"],["bundles","세트 관리"]]} selected={settingsTab} onSelect={tab=>setScreen(tab==='bundles'?'bundles':'settings')}/></PageIntro></div>}
+    {(screen==='productNew'||screen==='settings')&&<PersonalInventory key={`${adminId}:${selectedProject.id}`} request={eventStockRequest} routeHash={routeHash} navigate={setScreen} event={selectedProject} eventProducts={products} eventSales={sales} onRemoveEventProduct={id=>mutate('removeProduct',{productId:id})}/>}
+    {(screen==='bundleNew'||screen==='bundles')&&selectedProject.permissions?.canConfigure && <ProductsPage adminId={adminId} inventoryApi={inventoryApi} dataRevision={dataRevision} projectName={selectedProject.name} initialProductId={routeProductId} registerProduct={product => inventoryApi('createEventProduct', { projectId: selectedProject.id, dataRevision, product })} creatingProduct={screen === 'productNew'} creatingBundle={screen === 'bundleNew'} navigate={setScreen} routeBundleNumber={routeBundleNumber} readOnly={readOnly} key={selectedProject.id} projectId={selectedProject.id} settingsTab={settingsTab} saving={saving} mutate={mutate} products={products} bundles={bundles} sales={sales} persistProducts={persistProducts} persistBundles={persistBundles} bundleName={bundleName} setBundleName={setBundleName} bundleRows={bundleRows} setBundleRows={setBundleRows} bundlePrice={bundlePrice} setBundlePrice={setBundlePrice} addBundleToSettings={addBundleToSettings} />}
 
     {screen==='log'&&selectedProject&&!selectedProject.permissions?.canSettle&&!selectedProject.permissions?.canViewPos&&<PersonalOverview request={eventReads.request} projectId={selectedProject.id}/>}
     {screen === 'log' && (selectedProject?.permissions?.canSettle || selectedProject?.permissions?.canViewPos) && <SettlementPage key={`${screen}:${selectedProject.id}:${routeParams.get('productId') || ''}`} initialProductId={linkedProjectId ? routeParams.get('productId') || '' : ''} initialProductSearch={linkedProjectId ? routeParams.get('productName') || '' : ''} reportOnly={screen === 'revenue'} initialTab={screen === 'log' && routeParams.get('productId') ? 'history' : 'summary'} request={eventReads.request} projectId={selectedProject.id} products={products} bundles={bundles} onSettlementChange={async () => {const data=await inventoryApi('getEventState',{projectId:selectedProject.id,apply:true});if(typeof BroadcastChannel!=='undefined'){const channel=new BroadcastChannel('pos-project-lifecycle');channel.postMessage({action:'settlementChanged',adminId,projectId:selectedProject.id,closedAt:data.settlementClosedAt});channel.close();}}} readOnly={readOnly} stats={stats} sales={sales} visibleSales={visibleSales} logCreatorFilter={logCreatorFilter} setLogCreatorFilter={setLogCreatorFilter} creatorSalesSummary={creatorSalesSummary} selectedCreatorSummary={selectedCreatorSummary} exportCsv={exportCsv} clearSalesWithPassword={clearSalesWithPassword} saleLineCreators={saleLineCreators} saleLineProductEntries={saleLineProductEntries} voidSale={voidSale} />}

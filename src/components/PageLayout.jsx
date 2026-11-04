@@ -68,7 +68,7 @@ export function AppHeader({ profileImage, page, navigate, project, projects = []
   const moreActive = ['dashboard', 'account', 'revenue'].includes(page);
   const permissions = project?.permissions || {};
   const eventMenu = showEventNav ? [['pos', '판매'], ['settings', '상품 관리'], ['log', '판매 현황'], ['project', '행사 관리']].filter(([key]) => key === 'pos' ? permissions.canSell || permissions.canViewPos : key === 'project' ? permissions.canManage : key === 'log' ? permissions.canSettle || permissions.canViewPos || permissions.canReadOwnHistory || permissions.ownerIds?.length : permissions.canConfigure || permissions.ownerIds?.length) : [];
-  const eventMenuCurrent = key => !onPersonalPage && (page === key || key === 'project' && page.startsWith('project') || key === 'settings' && ['productNew','bundleNew'].includes(page));
+  const eventMenuCurrent = key => !onPersonalPage && (page === key || key === 'project' && page.startsWith('project') || key === 'settings' && ['productNew','bundles','bundleNew'].includes(page));
   const accountMenu = [['projects','행사 목록'],['inventory','내 재고관리'],['dashboard','대시보드'],['account','마이페이지']];
   return <><header ref={root} className="app-header sales-app-header border-b border-line bg-white text-ink">
     <div className="header-brand"><a href={`#${pagePaths[destination]}`} className="display-font brand-title font-bold" onClick={follow(destination)} aria-label="위드부스 판매"><img className="brand-logo" src="/brand/withbooth-final-logo.png" alt="위드부스" width="1930" height="815" /></a>{saving && <span className="sr-only" role="status">저장 중...</span>}</div>

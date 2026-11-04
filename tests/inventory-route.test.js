@@ -27,7 +27,7 @@ test('inventory deep links, direct refresh, back/forward and event history queri
     this.setExport('useCallback', callback => callback);
   }, { context }));
   await module.evaluate();
-  const { usePageRoute, pageForHash, productIdForHash } = module.namespace;
+  const { usePageRoute, pageForHash, productIdForHash, bundleNumberForHash } = module.namespace;
   assert.equal(usePageRoute()[0], 'inventory');
   assert.equal(usePageRoute()[2], window.location.hash);
   assert.equal(pageForHash('#/project/manage?projectId=managed-event'), 'project');
@@ -73,6 +73,14 @@ test('inventory deep links, direct refresh, back/forward and event history queri
   assert.equal(productIdForHash(usePageRoute()[2]), 'goods/one');
   assert.equal(pageForHash('#/products/new'), 'productNew');
   assert.equal(pageForHash('#/products/bundles/new'), 'bundleNew');
+  // Sets have their own routes; details are addressed by the stable set number.
+  assert.equal(pageForHash('#/bundles'), 'bundles');
+  assert.equal(pageForHash('#/bundles/new'), 'bundleNew');
+  assert.equal(pageForHash('#/bundles/3?projectId=event-two'), 'bundles');
+  assert.equal(pageForHash('#/bundles/0'), null);
+  assert.equal(bundleNumberForHash('#/bundles/3?projectId=event-two'), 3);
+  assert.equal(bundleNumberForHash('#/bundles/new'), null);
+  assert.equal(bundleNumberForHash('#/bundles'), null);
   assert.equal(pageForHash('#/products/a/b'), null);
   assert.equal(productIdForHash('#/products/new'), '');
   assert.equal(productIdForHash('#/products/%broken'), '');

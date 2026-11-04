@@ -606,15 +606,17 @@ input, select { background: white; color: #17243b; min-height: 36px; }
 .management-table { min-width: 0; table-layout: fixed; }
 .management-table :is(th, td) { white-space: normal; overflow-wrap: anywhere; padding: 12px 8px; }
 .product-management-table th:first-child { width: 24%; }
-#root .bundle-management-table th:first-child{width:22%}
-#root .bundle-management-table th:nth-child(2){width:30%}
-#root .bundle-management-table th:nth-child(3){width:14%}
-#root .bundle-management-table th:nth-child(4){width:12%}
-#root .bundle-management-table th:nth-child(5){width:14%}
-#root .bundle-management-table th:nth-child(6){width:8%}
+#root .bundle-management-table th:first-child{width:7%}
+#root .bundle-management-table th:nth-child(2){width:20%}
+#root .bundle-management-table th:nth-child(3){width:27%}
+#root .bundle-management-table th:nth-child(4){width:14%}
+#root .bundle-management-table th:nth-child(5){width:12%}
+#root .bundle-management-table th:nth-child(6){width:14%}
+#root .bundle-management-table th:nth-child(7){width:8%}
 @media(max-width:767px),(max-width:1199px) and (hover:none) and (pointer:coarse){
- #root .bundle-management-table th:first-child{width:40%}
- #root .bundle-management-table th:nth-child(3),#root .bundle-management-table th:nth-child(4),#root .bundle-management-table th:nth-child(5){width:12%;white-space:nowrap}
+ #root .bundle-management-table th:first-child{width:12%}
+ #root .bundle-management-table th:nth-child(2){width:34%}
+ #root .bundle-management-table th:nth-child(4),#root .bundle-management-table th:nth-child(5),#root .bundle-management-table th:nth-child(6){width:12%;white-space:nowrap}
 }
 .bundle-table-components { list-style: none; margin: 0; padding: 0; }
 .bundle-table-components li + li { margin-top: 10px; }
@@ -628,8 +630,8 @@ input, select { background: white; color: #17243b; min-height: 36px; }
   .product-management-table :is(th, td):nth-child(2),
   .product-management-table :is(th, td):nth-child(4),
   .product-management-table :is(th, td):nth-child(7),
-  .bundle-management-table :is(th, td):nth-child(2),
-  .bundle-management-table :is(th, td):nth-child(6) { display: none; }
+  .bundle-management-table :is(th, td):nth-child(3),
+  .bundle-management-table :is(th, td):nth-child(7) { display: none; }
   .product-management-table th:first-child { width: 40%; }
   .management-mobile-meta { display: block; }
   .management-table .management-row-price { text-align: right; }
@@ -1063,7 +1065,7 @@ input, select { background: white; color: #17243b; min-height: 36px; }
 /* Keep product names centered in the cell without an empty link height. */
 .event-product-number-table .management-name-link { min-height: 0; margin: 0; padding: 0; }
 .event-product-number-table .management-mobile-meta { margin-top: 2px; line-height: 1.4; }
-.bundle-management-table th:nth-child(3) { text-align:center; }
+.bundle-management-table th:nth-child(4) { text-align:center; }
 .bundle-management-table .management-row-price { text-align:left; }
 
 /* Add one typographic point to each inventory-list text level. */
@@ -2310,3 +2312,9 @@ body:has(.api-read-indicator) .loading-state{visibility:hidden}
 .bundle-card-items li>span:first-child,.order-bundle-items li>span:first-child{min-width:0;overflow-wrap:anywhere}
 .bundle-card-items li>span:last-child,.order-bundle-items li>span:last-child{flex-shrink:0;color:#64748b}
 .order-bundle-items{margin:4px 0 2px}
+
+/* Set number column and detail actions. */
+.bundle-management-table .bundle-number-cell{text-align:center;color:#475569}
+.bundle-submit-actions{display:flex;gap:8px;margin-top:16px}
+.bundle-submit-actions>.management-add{flex:1}
+#root .bundle-submit-actions>.management-delete{border:1px solid #fecaca;background:#fff}

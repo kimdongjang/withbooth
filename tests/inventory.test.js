@@ -865,3 +865,22 @@ test('closed event blocks sales, voids, registration and allocation while keepin
   assert.equal((await invoke(null,event)).body.products[0].stockQty,5);
  }finally{await db.close();}
 });
+
+test('set numbers are server-owned, survive edits and number legacy rows after the current highest', async () => {
+  const { db, invoke } = await fixture();
+  try {
+    const event = (await invoke('createProject', null, { name: '세트 번호 행사' })).body.project.id;
+    const items = [{ productId: 'p1', qty: 1 }];
+    let state = (await invoke('replaceBundles', event, { bundles: [{ id: 'set-b', name: 'B', price: 0, items }, { id: 'set-a', name: 'A', price: 0, items }] })).body;
+    const numberOf = (bundles, id) => bundles.find(bundle => bundle.id === id).bundleNumber;
+    assert.deepEqual([numberOf(state.bundles, 'set-b'), numberOf(state.bundles, 'set-a')], [1, 2]);
+    // Editing keeps numbers; client-sent numbers are ignored; a new set gets the next number.
+    state = (await invoke('replaceBundles', event, { bundles: [{ id: 'set-a', name: 'A2', price: 100, items, bundleNumber: 9 }, { id: 'set-b', name: 'B', price: 0, items }, { id: 'set-c', name: 'C', price: 0, items }] })).body;
+    assert.deepEqual(state.bundles.map(bundle => [bundle.id, bundle.bundleNumber, bundle.name]), [['set-b', 1, 'B'], ['set-a', 2, 'A2'], ['set-c', 3, 'C']]);
+    // Rows without a number (pre-column data, restores) are numbered on read after the highest existing number.
+    await db.query("INSERT INTO pos_bundles (project_id, id, name, price, items) VALUES ($1, 'legacy', '예전 세트', 0, '[]'::jsonb)", [event]);
+    state = (await invoke(null, event)).body;
+    assert.equal(numberOf(state.bundles, 'legacy'), 4);
+    assert.equal(numberOf(state.bundles, 'set-a'), 2);
+  } finally { await db.close(); }
+});

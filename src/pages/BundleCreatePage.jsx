@@ -4,7 +4,7 @@ import { Input, ProductImage } from '../components/PosUI';
 import { won, creatorNameOf, productNameWithoutCreator } from '../utils/productDisplay';
 import { managementBundleStock } from '../utils/managementQuantities';
 
-export default function BundleCreatePage({ readOnly, saving, products, bundleName, setBundleName, bundleRows, setBundleRows, bundlePrice, setBundlePrice, onSave, onBack, title = '새 세트 등록', backLabel = '← 세트 목록으로', submitLabel = '세트 저장' }) {
+export default function BundleCreatePage({ readOnly, saving, products, bundleName, setBundleName, bundleRows, setBundleRows, bundlePrice, setBundlePrice, onSave, onBack, title = '새 세트 등록', backLabel = '← 세트 목록으로', submitLabel = '세트 저장', number = null, soldQty = null, onDelete = null, canSubmit = true }) {
   const [search, setSearch] = useState('');
   const [busy, setBusy] = useState(false);
   const submitting = useRef(false);
@@ -26,7 +26,7 @@ export default function BundleCreatePage({ readOnly, saving, products, bundleNam
     <form className="settings-content product-management" onSubmit={submit}>
       <fieldset disabled={readOnly || saving || busy} className="min-w-0">
         <article className="management-product">
-          <div className="management-product-header"><h3>{bundleName.trim() || '새 세트'}</h3><span className="bundle-count">{selected.length}종 구성</span></div>
+          <div className="management-product-header"><div className="bundle-detail-title">{number && <span className="event-product-tag" aria-label={`${number}번 세트`}>{number}</span>}<h3>{bundleName.trim() || '새 세트'}</h3></div><span className="bundle-count">{selected.length}종 구성</span></div>
           <div className="bundle-create-body">
             <div className="management-details">
               <fieldset><legend>기본 정보</legend><div className="management-fields">
@@ -52,9 +52,9 @@ export default function BundleCreatePage({ readOnly, saving, products, bundleNam
                 const product = products.find(item => item.id === row.productId);
                 return <li key={row.productId}><strong>{product ? productNameWithoutCreator(product) : '삭제된 상품'}</strong><div className="bundle-row-actions"><label className="management-field"><span>세트당 수량</span><Input required aria-label={`${product?.name || '구성품'} 세트당 수량`} type="number" min="1" step="1" value={row.qty} onChange={qty => setBundleRows(selected.map(item => item.productId === row.productId ? { ...item, qty } : item))} /></label><button type="button" className="management-delete" aria-label={`${product?.name || '구성품'} 구성에서 제거`} onClick={() => toggle(row.productId)}>제거</button></div></li>;
               })}</ul>
-              <dl className="bundle-totals"><div><dt>단품 합계</dt><dd>{validQuantities ? `${won(subtotal)}원` : '—'}</dd></div><div><dt>세트 판매가</dt><dd>{bundlePrice === '' ? '—' : `${won(bundlePrice)}원`}</dd></div><div><dt>판매 가능 수량</dt><dd>{validQuantities && selected.length ? `${won(managementBundleStock({ items: selected }, products))}세트` : '—'}</dd></div></dl>
+              <dl className="bundle-totals"><div><dt>단품 합계</dt><dd>{validQuantities ? `${won(subtotal)}원` : '—'}</dd></div><div><dt>세트 판매가</dt><dd>{bundlePrice === '' ? '—' : `${won(bundlePrice)}원`}</dd></div><div><dt>판매 가능 수량</dt><dd>{validQuantities && selected.length ? `${won(managementBundleStock({ items: selected }, products))}세트` : '—'}</dd></div>{soldQty !== null && <div><dt>판매수량</dt><dd>{won(soldQty)}세트</dd></div>}</dl>
               <p className="management-note">구성품의 재고를 공유하며, 세트 판매 시 지정한 수량만큼 차감됩니다.</p>
-              <button type="submit" className="management-add" disabled={!selected.length || !validQuantities}>{saving || busy ? '저장 중…' : submitLabel}</button>
+              <div className="bundle-submit-actions">{onDelete && <button type="button" className="management-delete" onClick={onDelete}>세트 삭제</button>}<button type="submit" className="management-add" disabled={!selected.length || !validQuantities || !canSubmit}>{saving || busy ? '저장 중…' : submitLabel}</button></div>
             </aside>
           </div>
         </article>
