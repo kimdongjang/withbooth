@@ -2318,3 +2318,10 @@ body:has(.api-read-indicator) .loading-state{visibility:hidden}
 .bundle-submit-actions{display:flex;gap:8px;margin-top:16px}
 .bundle-submit-actions>.management-add{flex:1}
 #root .bundle-submit-actions>.management-delete{border:1px solid #fecaca;background:#fff}
+
+/* Set form: the tall selection aside must not stretch the left column's rows apart. */
+.bundle-create-body>.management-details{align-content:start;align-self:start}
+
+/* Set purchase number on sale cards. */
+.bundle-card-heading{display:flex;align-items:center;gap:8px;margin-bottom:8px}
+.bundle-card-heading>.bundle-number-badge{position:static;min-width:28px;height:28px;padding:0 6px;font-size:16px;border-radius:7px}

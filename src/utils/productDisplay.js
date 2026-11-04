@@ -25,3 +25,4 @@ export const normalizeProductForClient = (product) => {
 };
 
 export const compareProductSaleNumber = (a, b) => (Number(a.saleNumber) || Number.MAX_SAFE_INTEGER) - (Number(b.saleNumber) || Number.MAX_SAFE_INTEGER) || String(a.productCode || a.id).localeCompare(String(b.productCode || b.id), 'ko-KR', { numeric: true });
+export const compareBundleNumber = (a, b) => (Number(a.bundleNumber) || Number.MAX_SAFE_INTEGER) - (Number(b.bundleNumber) || Number.MAX_SAFE_INTEGER) || String(a.id).localeCompare(String(b.id));

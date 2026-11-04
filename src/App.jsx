@@ -30,7 +30,7 @@ import ProjectRestorePage from './pages/ProjectRestorePage';
 import { AppHeader, PageIntro, PageTabs } from './components/PageLayout';
 import { Input } from './components/PosUI';
 import { pagePaths, pageTitles, projectPages, pageForHash, productIdForHash, bundleNumberForHash, usePageRoute } from './hooks/usePageRoute';
-import { uid, won, creatorNameOf, eventCreatorNameOf, productNameFromFields, productNameWithoutCreator, normalizeProductForClient, compareProductSaleNumber } from './utils/productDisplay';
+import { uid, won, creatorNameOf, eventCreatorNameOf, productNameFromFields, productNameWithoutCreator, normalizeProductForClient, compareProductSaleNumber, compareBundleNumber } from './utils/productDisplay';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { orderRepository } from './database/orderRepository';
 import { stateRepository } from './database/stateRepository';
@@ -441,7 +441,7 @@ export default function App() {
     setSaving(true);
     setError('');
     try {
-      if (['resetDefaults', 'upsertDefaults', 'replaceProducts', 'replaceBundles', 'clearSales', 'updateProductImage', 'removeProduct', 'reorderProducts'].includes(action)) {
+      if (['resetDefaults', 'upsertDefaults', 'replaceProducts', 'replaceBundles', 'clearSales', 'updateProductImage', 'removeProduct', 'reorderProducts', 'reorderBundles'].includes(action)) {
         const waiting = await orderRepository.countWaiting(selectedProject.id);
         if (waiting > 0) throw new Error('미동기화 주문이 남아 있습니다. 주문 동기화를 완료한 뒤 상품·세트 변경을 다시 시도해주세요.');
       }
@@ -759,8 +759,8 @@ export default function App() {
   }, [creatorFilter, products]);
   const bundleCreators = useCallback((bundle) => [...new Set((bundle?.items || []).map((item) => eventCreatorNameOf(productsById[item.productId])))], [productsById]);
   const visibleBundles = useMemo(() => {
-    if (creatorFilter === 'all') return bundles;
-    return bundles.filter((bundle) => bundleCreators(bundle).includes(creatorFilter));
+    const filtered = creatorFilter === 'all' ? bundles : bundles.filter((bundle) => bundleCreators(bundle).includes(creatorFilter));
+    return [...filtered].sort(compareBundleNumber);
   }, [bundleCreators, bundles, creatorFilter]);
   const visibleSales = useMemo(() => {
     return sales.slice().reverse();
@@ -818,7 +818,7 @@ export default function App() {
 
     {screen === 'restore' && <ProjectRestorePage key={selectedProject?.id || 'standalone'} booths={workspace.booths} navigate={setScreen} onManageProject={manageProject} onSelectProject={selectProject} />}
 
-    {screen === 'pos' && <SalesPage project={selectedProject} products={products} readOnly={readOnly} purchaseTab={purchaseTab} setPurchaseTab={setPurchaseTab} visibleProducts={visibleProducts} visibleBundles={visibleBundles} creators={creators} creatorFilter={creatorFilter} setCreatorFilter={setCreatorFilter} availableStock={availableStock} bundleAvailable={bundleAvailable} addProduct={addProduct} addBundle={addBundle} cart={cart} setCart={setCart} orderExpanded={orderExpanded} setOrderExpanded={setOrderExpanded} total={total} updateCartQty={updateCartQty} saving={saving} finalizeSale={finalizeSale} canReorder={Boolean(selectedProject.permissions?.canConfigure) && !readOnly} onReorder={payload => mutate('reorderProducts', payload)} />}
+    {screen === 'pos' && <SalesPage project={selectedProject} products={products} readOnly={readOnly} purchaseTab={purchaseTab} setPurchaseTab={setPurchaseTab} visibleProducts={visibleProducts} visibleBundles={visibleBundles} creators={creators} creatorFilter={creatorFilter} setCreatorFilter={setCreatorFilter} availableStock={availableStock} bundleAvailable={bundleAvailable} addProduct={addProduct} addBundle={addBundle} cart={cart} setCart={setCart} orderExpanded={orderExpanded} setOrderExpanded={setOrderExpanded} total={total} updateCartQty={updateCartQty} saving={saving} finalizeSale={finalizeSale} canReorder={Boolean(selectedProject.permissions?.canConfigure) && !readOnly} onReorder={payload => mutate('reorderProducts', payload)} onReorderBundles={payload => mutate('reorderBundles', payload)} />}
 
     {(screen==='settings'||screen==='bundles'&&!routeBundleNumber)&&selectedProject.permissions?.canConfigure&&<div className="event-settings-tabs"><PageIntro hideTitle title={screen==='bundles'?'세트 관리':'상품 관리'}><PageTabs id="event-settings" label="상품 관리 메뉴" tabs={[["products","상품 관리"],["bundles","세트 관리"]]} selected={settingsTab} onSelect={tab=>setScreen(tab==='bundles'?'bundles':'settings')}/></PageIntro></div>}
     {(screen==='productNew'||screen==='settings')&&<PersonalInventory key={`${adminId}:${selectedProject.id}`} request={eventStockRequest} routeHash={routeHash} navigate={setScreen} event={selectedProject} eventProducts={products} eventSales={sales} onRemoveEventProduct={id=>mutate('removeProduct',{productId:id})}/>}

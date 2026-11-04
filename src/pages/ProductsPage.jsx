@@ -4,7 +4,7 @@ import EventInventoryControls from '../components/EventInventoryControls';
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { uploadProductImage } from '../utils/uploadProductImage';
 import { managementQuantities, managementBundleStock } from '../utils/managementQuantities';
-import { won, creatorNameOf, productNameWithoutCreator, compareProductSaleNumber } from '../utils/productDisplay';
+import { won, creatorNameOf, productNameWithoutCreator, compareProductSaleNumber, compareBundleNumber } from '../utils/productDisplay';
 import { Quantity, ProductImage } from '../components/PosUI';
 import { prepareProductImage } from '../utils/productImage';
 import ProductCreatePage from './ProductCreatePage';
@@ -34,7 +34,7 @@ function BundleManagementTable({ readOnly, saving, bundles, products, sales, per
   return <div className="management-table-wrap"><table className="management-table bundle-management-table" role="table">
     <caption className="sr-only">세트 번호, 세트 이름, 구성품, 판매가, 판매수량, 판매 가능 수량, 관리 목록</caption>
     <thead role="rowgroup"><tr role="row">{['번호', '세트 이름', '구성품', '판매가', '판매수량', '판매 가능 수량', '관리'].map((label) => <th key={label} scope="col" role="columnheader">{label}</th>)}</tr></thead>
-    <tbody role="rowgroup">{!bundles.length&&<tr role="row" className="table-empty-row"><td role="cell" colSpan={7}><p>등록된 세트가 없어요. 구성품과 판매가를 정해 첫 세트를 등록해 보세요.</p><button type="button" disabled={readOnly || saving} className="management-add" onClick={onAdd}>+ 세트 추가</button></td></tr>}{bundles.map((bundle) => <tr key={bundle.id} role="row">
+    <tbody role="rowgroup">{!bundles.length&&<tr role="row" className="table-empty-row"><td role="cell" colSpan={7}><p>등록된 세트가 없어요. 구성품과 판매가를 정해 첫 세트를 등록해 보세요.</p><button type="button" disabled={readOnly || saving} className="management-add" onClick={onAdd}>+ 세트 추가</button></td></tr>}{[...bundles].sort(compareBundleNumber).map((bundle) => <tr key={bundle.id} role="row">
       <td role="cell" data-label="번호" className="mono bundle-number-cell">{bundle.bundleNumber || '-'}</td>
       <td role="cell" data-label="세트 이름">{bundle.bundleNumber ? <button type="button" className="management-name-link" aria-label={`${bundle.name} 상세보기`} onClick={() => onSelect(bundle)}>{bundle.name}</button> : <span>{bundle.name}</span>}<small className="management-mobile-meta">{bundle.items.length}종 구성</small></td>
       <td role="cell" data-label="구성품" className="management-components-cell"><ul className="bundle-table-components">{bundle.items.map((item, index) => {
