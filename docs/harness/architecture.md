@@ -631,7 +631,7 @@ flowchart LR
 
 | 저장소 | 데이터/키 | 특성 |
 | --- | --- | --- |
-| sessionStorage | `pos_admin_token`, `pos_admin_id`, `pos_selected_project_id` | 탭 세션 인증/선택; 새 세션 오프라인 인증 보장 없음 |
+| sessionStorage + localStorage `pos_session_v2` | `pos_admin_token`, `pos_admin_id`, `pos_selected_project_id` | 탭 세션 인증/선택. 웹·네이티브 모두 `{savedAt, values}`로 복사해 탭 종료/재시작 후 오프라인에서도 복원. 마지막 사용(앱 시작·값 변경) 후 30일 지나면 복원하지 않음. 로그아웃은 저장본 삭제, IndexedDB 주문은 유지. 기존 네이티브 `pos_native_session_v1`은 첫 실행 때 이전 |
 | IndexedDB `booth-pos-offline-db.orders` | 자동증가 id, projectId, localOrderId, createdAt, payload, syncStatus, retryCount, lastSyncAt | 상태: PENDING/SYNCING/SYNCED/FAILED/ARCHIVED; 주문과 취소 명령 저장 |
 | IndexedDB `posState` | `project:{projectId}:latest`, state, updatedAt | products/bundles/sales 스냅샷; 주문 큐와 별도 저장 |
 | Postgres `pos_admins` | id PK, email (대소문자/양끝 공백 무시 UNIQUE), password_hash, created_at, privacy_consented_at, privacy_policy_version | 신규 가입 이메일 필수; 기존 계정 NULL 허용. 회원가입은 `privacyConsent === true`가 아니면 400이며, 가입 시각과 서버 상수 `PRIVACY_POLICY_VERSION`을 동의 기록으로 저장한다(정책 이전 계정은 NULL). 탈퇴 시 이메일·닉네임·패스워드는 지우고 동의 기록은 남긴다 |
@@ -1121,3 +1121,10 @@ public/robots.txt는 홈 및 렌더링 자산 크롤링을 허용하고 /api/, /
 - 동기화 전 상품은 `pendingSync` 표시로 상품 관리 목록에 로컬 값으로 보이고(`withLocalEventProducts`), 이미지·재고 배정 변경은 동기화 뒤에만 가능하다. 온라인 상태의 등록·이미지와 함께 등록·이미지로 일괄 추가·재고 배정 변경·참여 제작자의 등록은 서버로 바로 보낸다.
 - 순서 변경 권한: `eventPermissions`에 `canReorder`(운영자 owner/manager와 부운영자 assistant)를 두고 서버는 `reorderProducts`/`reorderBundles`를 `reorder` 권한으로 검사한다. 부스참여자(seller)·참여 제작자는 순서를 바꿀 수 없으며 화면의 순서 변경 토글도 `canReorder`로만 표시한다.
 - 확장: 새 설정 작업은 `settingsReducers`에 순수 리듀서를, 서버 영수증(`queuedSettingsActions` 또는 해당 API의 requestId)을 추가하고, `/api/pos` 밖이면 `queuedEndpoint`에 경로를 지정한다.
+
+## 새 상품 제작자 직접 입력과 제작자 추가 목록 (2026-11-09)
+
+- 새 행사 상품 등록(운영자, `allowDirectArtist`)은 `CreatorField`에 `searchable={false}`를 넘겨 제작자 검색 버튼 없이 드롭다운만 쓴다. 맨 위 '+ 새 제작자 추가', 기본값 미지정, 이어서 행사 제작자를 계정이 있으면 `닉네임(아이디)`로 표시한다(`optionLabel`, 표시 전용이며 상품 creatorName은 기존 표시명). 이 값은 `stockParticipants` 응답의 `user_id`·`nickname`으로 만든다. 새 제작자 추가를 고르면 이름 입력과 자동 등록 안내가 나오고, 등록 시 기존 `registerEventArtistProduct`의 `artistName`으로 계정 없는 제작자를 만든다(오프라인 큐는 기존대로 미지정). 상품 상세의 제작자 검색 팝업은 유지한다.
+- 행사 관리의 제작자 추가·계정 연결 팝업은 파란색 검색 버튼(2자 미만이면 오류 표시)으로 검색한다. 결과는 아래 목록에 오른쪽 '+ 추가'(계정 연결은 '연결') 버튼으로 표시한다. 결과가 없으면 '검색된 항목이 없습니다'와 함께, 추가 팝업에서는 검색한 이름을 계정 연결 없이 추가하는 '+ 추가'를 보여 기존 `createEventCreator`로 등록한다. 별도 직접 입력 화면은 없앴다. '초대 링크 복사'는 연두색 바탕·짙은 초록 글씨 버튼이다.
+- 판매 현황(`#/settlement`)의 전체 매출 요약은 탭 아래에 표시한다.
+- 판매 내역 검색의 상품·제작자 입력은 클릭/입력 시 아래에 후보 목록을 보여 준다(`SearchFilters`의 `suggestions`). 상품은 행사 상품·세트 이름, 제작자는 상품 제작자와 판매 집계 제작자이며 선택하면 기존 부분 일치 검색에 그 값을 넣는다.

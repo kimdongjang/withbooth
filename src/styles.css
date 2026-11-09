@@ -2281,6 +2281,10 @@ body:has(.api-read-indicator) .loading-state{visibility:hidden}
 #root .event-settlement-panel :is(.event-cost-card,.event-settlement-report)>.account-card-body{padding:0;gap:0}
 #root .event-settlement-panel :is(.event-cost-table-wrap,.event-settlement-report-scroll){border:0;border-radius:0}
 #root .event-settlement-panel .event-settlement-totals{padding:16px var(--event-content-space,20px)}
+/* Section headings, table edge cells and totals share the management page inset. */
+#root .event-settlement-panel .account-card-heading{min-height:64px;padding:12px var(--event-content-space,20px)}
+#root .event-settlement-panel .management-table :is(th,td):first-child{padding-left:var(--event-content-space,20px)}
+#root .event-settlement-panel .management-table :is(th,td):last-child{padding-right:var(--event-content-space,20px)}
 
 /* Signup privacy consent. */
 .auth-privacy{margin-bottom:12px;padding:12px;border:1px solid #e2e8f0;border-radius:8px;background:#f8fafc;font-size:13px}
@@ -2296,6 +2300,15 @@ body:has(.api-read-indicator) .loading-state{visibility:hidden}
 /* Compact row actions in the event participant table. */
 #root .event-participant-table .event-participant-actions :is(.management-back,.management-delete){min-height:32px;padding:4px 10px;font-size:13px;line-height:1.4}
 #root .event-participant-table .event-participant-actions .management-delete{border:1px solid #fecaca;background:#fff}
+/* Participant columns: creator takes the remaining width, the rest size to their content. */
+#root .event-participant-table th:nth-child(1){width:auto}
+#root .event-participant-table th:nth-child(2){width:88px}
+#root .event-participant-table th:nth-child(3){width:116px}
+#root .event-participant-table th:nth-child(4){width:136px}
+#root .event-participant-table th:nth-child(5){width:80px}
+#root .event-participant-table td:nth-child(n+2){text-align:center;white-space:nowrap}
+#root .event-participant-table td:nth-child(5) .event-participant-actions{justify-content:center}
+#root .event-participant-table select{width:100%;max-width:none}
 
 /* Nickname form: input and a content-sized save button stay on one row. */
 #root .account-page .account-profile-form{grid-template-columns:minmax(0,1fr) auto;align-items:end;gap:8px}
@@ -2325,3 +2338,16 @@ body:has(.api-read-indicator) .loading-state{visibility:hidden}
 /* Set purchase number on sale cards. */
 .bundle-card-heading{display:flex;align-items:center;gap:8px;margin-bottom:8px}
 .bundle-card-heading>.bundle-number-badge{position:static;min-width:28px;height:28px;padding:0 6px;font-size:16px;border-radius:7px}
+/* Event creator add: empty search result offers an unlinked creator. */
+.event-account-empty{display:grid;justify-items:center;gap:8px;margin:0;padding:20px 16px;border:1px dashed #cbd5e1;border-radius:10px;text-align:center}
+.event-account-empty p{margin:0;overflow-wrap:anywhere}
+.event-account-empty p:first-child{font-weight:600}
+.event-account-empty p+p{color:#475569}
+#root .event-access-panel .event-invite-button{border-color:#bef264;background:#ecfccb;color:#365314}
+#root .event-access-panel .event-invite-button:hover:not(:disabled){border-color:#a3e635;background:#d9f99d;color:#1a2e05}
+/* Sales history search: product and creator suggestions under the input. */
+.settlement-suggest{position:relative;min-width:0}
+.settlement-suggest-list{position:absolute;z-index:20;top:calc(100% + 4px);left:0;right:0;max-height:240px;margin:0;padding:4px 0;overflow-y:auto;list-style:none;border:1px solid #e2e8f0;border-radius:8px;background:#fff;box-shadow:0 8px 24px rgba(15,23,42,.12)}
+.settlement-suggest-list li{padding:8px 12px;color:#0f172a;font-size:14px;cursor:pointer;overflow-wrap:anywhere}
+.settlement-suggest-list li:hover,.settlement-suggest-list li[aria-selected="true"]{background:#eff6ff;color:#1d4ed8}
+.creator-field-direct .creator-field-note{flex:1 1 100%;margin:0}

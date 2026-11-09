@@ -76,6 +76,30 @@ test('native cold boot restores session and account-scoped project cache without
   assert.equal(browser.app.readProjectList('admin'), null);
 });
 
+test('browser login survives a closed tab for 30 days of disuse and logout clears it', async () => {
+  const first = await boot({ native: false });
+  await first.app.initializeMobile();
+  first.app.sessionStore.setItem('pos_admin_token', 'token');
+  first.app.sessionStore.setItem('pos_admin_id', 'admin');
+  const reopened = await boot({ native: false, local: first.local });
+  await reopened.app.initializeMobile();
+  assert.equal(reopened.session.get('pos_admin_token'), 'token');
+  assert.equal(reopened.session.get('pos_admin_id'), 'admin');
+  assert.equal(reopened.calls.length, 0);
+  const saved = JSON.parse(first.local.get('pos_session_v2'));
+  first.local.set('pos_session_v2', JSON.stringify({ ...saved, savedAt: Date.now() - reopened.app.SESSION_TTL_MS - 1 }));
+  const expired = await boot({ native: false, local: first.local });
+  await expired.app.initializeMobile();
+  assert.equal(expired.session.get('pos_admin_token'), undefined);
+  assert.equal(first.local.has('pos_session_v2'), false);
+  const legacy = await boot({ local: new Map([['pos_native_session_v1', JSON.stringify({ pos_admin_token: 'old', pos_admin_id: 'admin' })]]) });
+  await legacy.app.initializeMobile();
+  assert.equal(legacy.session.get('pos_admin_token'), 'old');
+  assert.equal(legacy.local.has('pos_native_session_v1'), false);
+  legacy.app.sessionStore.removeItem('pos_admin_token');
+  assert.equal(legacy.local.has('pos_session_v2'), false);
+});
+
 test('OTA startup applies the latest bundle immediately and shares the StrictMode readiness check', async () => {
   const runtime = await boot();
   await runtime.app.initializeMobile();

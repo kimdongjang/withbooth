@@ -6,19 +6,40 @@ import { apiTarget, httpsOrigin, validUpdate } from './mobileConfig';
 
 export const isNative = Capacitor.isNativePlatform();
 const sessionKeys = ['pos_admin_token', 'pos_admin_id', 'pos_selected_project_id'];
-const persistedKey = 'pos_native_session_v1';
+const legacyNativeKey = 'pos_native_session_v1';
+// A login survives closed tabs, restarts and offline booth days; it lapses after 30 days unused.
+export const SESSION_TTL_MS = 30 * 24 * 60 * 60 * 1000;
 
-// Keep the existing sessionStorage consumers working, but restore app sessions after process death.
+// Keep the existing sessionStorage consumers working, but restore sessions after tab close or process death.
 const sessionKey = key => import.meta.env.MODE === 'localdb' ? `pos_local_dev:${key}` : key;
+const persistedKey = sessionKey('pos_session_v2');
 export const sessionStore = {
   getItem: key => sessionStorage.getItem(sessionKey(key)),
   setItem(key, value) { sessionStorage.setItem(sessionKey(key), value); persist(); },
   removeItem(key) { sessionStorage.removeItem(sessionKey(key)); persist(); },
 };
 function persist() {
-  if (isNative) localStorage.setItem(persistedKey, JSON.stringify(Object.fromEntries(
-    sessionKeys.map(key => [key, sessionStorage.getItem(key)]),
-  )));
+  try {
+    const values = Object.fromEntries(sessionKeys.map(key => [key, sessionStorage.getItem(sessionKey(key))]));
+    // Logout removes the saved login for every tab; orders stay in IndexedDB.
+    if (!values.pos_admin_token) localStorage.removeItem(persistedKey);
+    else localStorage.setItem(persistedKey, JSON.stringify({ savedAt: Date.now(), values }));
+    if (isNative) localStorage.removeItem(legacyNativeKey);
+  } catch { /* Storage blocked or full: the current tab session still works. */ }
+}
+function restoreSession() {
+  try {
+    if (!sessionStorage.getItem(sessionKey('pos_admin_token'))) {
+      const saved = JSON.parse(localStorage.getItem(persistedKey) || 'null');
+      const legacy = !saved && isNative ? JSON.parse(localStorage.getItem(legacyNativeKey) || 'null') : null;
+      const values = saved ? (Date.now() - Number(saved.savedAt) <= SESSION_TTL_MS ? saved.values : null) : legacy;
+      if (values && typeof values.pos_admin_token === 'string') {
+        for (const key of sessionKeys) if (typeof values[key] === 'string') sessionStorage.setItem(sessionKey(key), values[key]);
+      }
+    }
+  } catch { /* A damaged session requires an online login; never clear the order queue. */ }
+  // Opening the app counts as use and extends the 30 days (or drops an expired login).
+  persist();
 }
 export function saveProjectList(adminId, projects) {
   if (isNative) localStorage.setItem(`pos_native_projects:${adminId}`, JSON.stringify(projects));
@@ -32,12 +53,9 @@ export function readProjectList(adminId) {
 }
 
 export async function initializeMobile() {
+  restoreSession();
   if (!isNative) return;
   const origin = httpsOrigin(import.meta.env.VITE_MOBILE_API_ORIGIN);
-  try {
-    const saved = JSON.parse(localStorage.getItem(persistedKey) || '{}');
-    for (const key of sessionKeys) if (typeof saved[key] === 'string') sessionStorage.setItem(key, saved[key]);
-  } catch { /* A damaged session requires an online login; never clear the order queue. */ }
   const originalFetch = window.fetch.bind(window);
   window.fetch = (input, options) => {
     if (typeof input === 'string' || input instanceof URL) {

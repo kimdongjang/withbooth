@@ -36,6 +36,9 @@ export function withLocalEventProducts(items,event,products){
 }
 const unsynced=()=>Promise.reject(Object.assign(new Error('상품이 서버에 동기화된 뒤 이미지와 재고를 변경할 수 있습니다.'),{status:409}));
 
+// Dropdown text only: the product keeps the creator display name.
+const creatorOptionLabel=p=>p.user_id?`${p.nickname||p.display_name}(${p.user_id})`:p.display_name;
+
 export default function PersonalInventory({request,routeHash,navigate,event=null,eventProducts=[],eventSales,onRemoveEventProduct,queueEventProduct}) {
  const [options,setOptions]=useState([]),[selection,setSelection]=useState(''),[data,setData]=useState(null),[error,setError]=useState(''),[busy,setBusy]=useState(false),[pending,setPending]=useState(null);
  const [draft,setDraft]=useState({name:'',price:0,stock:0,cost:0,goodsType:'',vtuberName:'',genre:''});
@@ -54,13 +57,13 @@ export default function PersonalInventory({request,routeHash,navigate,event=null
   if(event?.permissions.canConfigure) {
    // Operators use the management endpoint; assistants receive event-limited profiles.
    const people=await request(`/api/booths?workspace=stockParticipants&projectId=${encodeURIComponent(event.id)}&boothId=${encodeURIComponent(event.boothId)}`);
-   values=people.profiles.map(p=>({key:`event:${p.owner_id}`,ownerId:p.owner_id,boothId:event.boothId,projectId:event.id,profileId:p.profile_id,owned:home.profiles.some(own=>own.owner_id===p.owner_id),catalog:p.catalog!==false,stockOnly:Boolean(p.stockOnly),label:p.display_name,linked:Boolean(p.linked_user_id)}));
+   values=people.profiles.map(p=>({key:`event:${p.owner_id}`,ownerId:p.owner_id,boothId:event.boothId,projectId:event.id,profileId:p.profile_id,owned:home.profiles.some(own=>own.owner_id===p.owner_id),catalog:p.catalog!==false,stockOnly:Boolean(p.stockOnly),label:p.display_name,optionLabel:creatorOptionLabel(p),linked:Boolean(p.linked_user_id)}));
   } else if(event) values=values.filter(p=>event.permissions.ownerIds.includes(p.ownerId)).map(p=>({...p,boothId:event.boothId,projectId:event.id}));
   if(active){setOptions(values);setSelection(current=>values.some(option=>option.key===current)?current:event?values[0]?.key||'':values.find(v=>v.key.startsWith('own:'))?.key||'');}
  })().catch(e=>{if(active){setError(e.message);if([401,403,404].includes(e.status)){setOptions([]);setData(null);}}});return()=>{active=false;};},[request,event?.id,readRevision]);
  const refreshCreators=async()=>{
   const people=await request(`/api/booths?workspace=stockParticipants&projectId=${encodeURIComponent(event.id)}&boothId=${encodeURIComponent(event.boothId)}`);
-  const values=people.profiles.map(p=>({key:`event:${p.owner_id}`,ownerId:p.owner_id,profileId:p.profile_id,boothId:event.boothId,projectId:event.id,owned:options.find(option=>option.ownerId===p.owner_id)?.owned||false,catalog:p.catalog!==false,stockOnly:Boolean(p.stockOnly),label:p.display_name,linked:Boolean(p.linked_user_id)}));
+  const values=people.profiles.map(p=>({key:`event:${p.owner_id}`,ownerId:p.owner_id,profileId:p.profile_id,boothId:event.boothId,projectId:event.id,owned:options.find(option=>option.ownerId===p.owner_id)?.owned||false,catalog:p.catalog!==false,stockOnly:Boolean(p.stockOnly),label:p.display_name,optionLabel:creatorOptionLabel(p),linked:Boolean(p.linked_user_id)}));
   setOptions(values);return values;
  };
  const url=s=>`/api/booths?artists=stock&${new URLSearchParams(Object.fromEntries(Object.entries(s).filter(([k,v])=>['ownerId','boothId','projectId'].includes(k)&&v)))}`;
@@ -129,7 +132,7 @@ export default function PersonalInventory({request,routeHash,navigate,event=null
   created.current=result.inventory;
   if(event.permissions.canConfigure){
    const people=await request(`/api/booths?workspace=stockParticipants&projectId=${encodeURIComponent(event.id)}&boothId=${encodeURIComponent(event.boothId)}`);
-   const values=people.profiles.map(p=>({key:`event:${p.owner_id}`,ownerId:p.owner_id,boothId:event.boothId,projectId:event.id,profileId:p.profile_id,catalog:p.catalog!==false,stockOnly:Boolean(p.stockOnly),label:p.display_name,linked:Boolean(p.linked_user_id)}));
+   const values=people.profiles.map(p=>({key:`event:${p.owner_id}`,ownerId:p.owner_id,boothId:event.boothId,projectId:event.id,profileId:p.profile_id,catalog:p.catalog!==false,stockOnly:Boolean(p.stockOnly),label:p.display_name,optionLabel:creatorOptionLabel(p),linked:Boolean(p.linked_user_id)}));
    setOptions(values);setSelection(current=>values.some(value=>value.key===current)?current:values[0]?.key||'');
   }
  }} saveImage={async file=>{if(!created.current)throw new Error('등록한 상품을 확인해주세요.');await image(created.current,file);}}/>{error&&<p role="alert" className="inventory-error">{error}</p>}</>;
