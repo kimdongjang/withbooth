@@ -145,6 +145,7 @@ test('event product form offers direct artist input, hides unspecified and prese
  const props={projectId:'event',artists:[{ownerId:'none',label:'미지정'},{ownerId:'admin',label:'관리자'}],allowDirectArtist:true,products:[],onBack(){returned=true;},registerProduct:async product=>{calls.push(product);if(calls.length===1)throw Object.assign(new Error('network'),{status:503});}};
  let tree=h.render(props);
  assert.equal(tree.find(n=>n.type==='CreatorField').props.allowDirect,true);
+ assert.equal(tree.find(n=>n.type==='CreatorField').props.searchable,false);
  assert.equal(tree.some(n=>n.type==='option'&&n.props.children==='미지정'),false);
  tree.find(n=>n.type==='CreatorField').props.onChange({ownerId:'',artistName:'직접 제작자'});
  const fields=tree.find(n=>n.type==='InventoryProductFields');fields.props.onChange('name','상품');fields.props.onChange('goodsType','키링');
@@ -179,7 +180,7 @@ test('event artist addition searches registered profiles in a popup instead of c
  tree.find(n=>n.type==='input'&&n.props.maxLength===100).props.onChange({target:{value:'검색'}});tree=h.render(props);
  await tree.find(n=>n.type==='form'&&n.props.className==='event-account-search').props.onSubmit({preventDefault(){}});tree=h.render(props);
  assert.equal(nodes(tree.find(n=>n.type==='dialog')).some(n=>n.type==='select'),false);
- await tree.find(n=>n.type==='button'&&n.props.children==='등록').props.onClick();
+ await tree.find(n=>n.type==='button'&&n.props.children==='+ 추가').props.onClick();
  assert.equal(calls[0].action,'addEventArtist');assert.equal(calls[0].payload.profileId,'artist-profile');assert.equal(calls[0].payload.role,'none');assert.equal(calls[0].payload.projectId,'event');
 });
 
@@ -238,15 +239,15 @@ test('creator search mutation freezes editing after response loss and retries in
 });
 
 
-test('event creator addition permits a direct name after an empty search and keeps the same registration request on retry',async()=>{
+test('event creator addition offers the searched name as an unlinked creator when the search finds nothing',async()=>{
  const calls=[];const request=async(url,options)=>{if(options){const cmd=JSON.parse(options.body);calls.push(cmd);if(calls.length===1)throw Object.assign(new Error('network'),{status:503});return {added:true};}return url.includes('searchArtists')?{artists:[]}:{profiles:[],staff:[]};};
  const h=await harness('components/EventAccessPanel.jsx'),props={request,project:{id:'e',boothId:'b'}};
  h.render(props);await h.flush();let tree=h.render(props);tree.find(n=>n.type==='button'&&n.props.children==='제작자 추가').props.onClick();h.render(props);await h.flush();tree=h.render(props);
  tree.find(n=>n.type==='input'&&n.props.placeholder==='제작자 이름·닉네임·아이디·이메일').props.onChange({target:{value:'신규 제작자'}});tree=h.render(props);await tree.find(n=>n.type==='form'&&n.props.className==='event-account-search').props.onSubmit({preventDefault(){}});tree=h.render(props);
- assert.equal(tree.filter(n=>n.type==='li').length,0);tree.find(n=>n.type==='button'&&n.props.children==='새 제작자 등록').props.onClick();tree=h.render(props);
- const form=tree.find(n=>n.type==='form'&&nodes(n).some(c=>c.type==='button'&&c.props.children==='제작자 등록'));assert.ok(form);assert.ok(nodes(form).some(n=>n.type==='input'&&n.props.value==='신규 제작자'));
- await form.props.onSubmit({preventDefault(){}});tree=h.render(props);assert.equal(calls[0].action,'createEventCreator');assert.equal(calls[0].payload.name,'신규 제작자');assert.equal(calls[0].payload.projectId,'e');
- const retry=nodes(tree.find(n=>n.type==='dialog')).find(n=>n.type==='button'&&n.props.children==='같은 요청 다시 확인');assert.ok(retry);await retry.props.onClick();assert.deepEqual(calls[0],calls[1]);
+ assert.equal(tree.find(n=>n.type==='form'&&n.props.className==='event-account-search').props.children[1].props.className,'management-add');
+ assert.equal(tree.filter(n=>n.type==='li').length,0);const empty=tree.find(n=>n.props?.className==='event-account-empty');assert.ok(empty);
+ const add=nodes(empty).find(n=>n.type==='button'&&n.props.children==='+ 추가');await add.props.onClick();
+ assert.equal(calls[0].action,'createEventCreator');assert.equal(calls[0].payload.name,'신규 제작자');assert.equal(calls[0].payload.projectId,'e');
 });
 
 

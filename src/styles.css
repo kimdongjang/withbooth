@@ -2338,3 +2338,10 @@ body:has(.api-read-indicator) .loading-state{visibility:hidden}
 /* Set purchase number on sale cards. */
 .bundle-card-heading{display:flex;align-items:center;gap:8px;margin-bottom:8px}
 .bundle-card-heading>.bundle-number-badge{position:static;min-width:28px;height:28px;padding:0 6px;font-size:16px;border-radius:7px}
+/* Event creator add: empty search result offers an unlinked creator. */
+.event-account-empty{display:grid;justify-items:center;gap:8px;margin:0;padding:20px 16px;border:1px dashed #cbd5e1;border-radius:10px;text-align:center}
+.event-account-empty p{margin:0;overflow-wrap:anywhere}
+.event-account-empty p:first-child{font-weight:600}
+.event-account-empty p+p{color:#475569}
+#root .event-access-panel .event-invite-button{border-color:#bef264;background:#ecfccb;color:#365314}
+#root .event-access-panel .event-invite-button:hover:not(:disabled){border-color:#a3e635;background:#d9f99d;color:#1a2e05}

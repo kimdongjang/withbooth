@@ -3,14 +3,13 @@ import {confirmAction} from '../utils/confirmAction';
 import {useEventReadRefresh} from '../hooks/useEventReadRefresh';
 export default function EventAccessPanel({request,project,onChange,beforeChange}) {
  const [data,setData]=useState(null),[error,setError]=useState(''),[busy,setBusy]=useState(false),[pending,setPending]=useState(null);
- const [linkProfile,setLinkProfile]=useState(null),[query,setQuery]=useState(''),[accounts,setAccounts]=useState([]),[searching,setSearching]=useState(false);
- const [direct,setDirect]=useState(false),[directName,setDirectName]=useState('');
+ const [linkProfile,setLinkProfile]=useState(null),[query,setQuery]=useState(''),[accounts,setAccounts]=useState([]),[searching,setSearching]=useState(false),[searched,setSearched]=useState('');
  const [accountOwnerId,setAccountOwnerId]=useState(null);
  const accountDialog=useRef(null);
  const readRevision=useEventReadRefresh(request,!busy&&!pending&&!linkProfile);
  const dialog=useRef(null),searchVersion=useRef(0);
- useEffect(()=>{searchVersion.current++;setAccounts([]);setQuery('');setSearching(false);setDirect(false);setDirectName('');if(linkProfile)dialog.current?.showModal();else dialog.current?.close();},[linkProfile]);
- const search=async e=>{e.preventDefault();const version=++searchVersion.current;setSearching(true);setError('');try{const result=await request(`/api/booths?workspace=${linkProfile?.mode==='add'?'searchArtists':'searchAccounts'}&${new URLSearchParams({projectId:project.id,boothId:project.boothId,q:query})}`);if(version===searchVersion.current)setAccounts(result.artists||result.accounts);}catch(e){if(version===searchVersion.current)setError(e.message);}finally{if(version===searchVersion.current)setSearching(false);}};
+ useEffect(()=>{searchVersion.current++;setAccounts([]);setQuery('');setSearching(false);setSearched('');if(linkProfile)dialog.current?.showModal();else dialog.current?.close();},[linkProfile]);
+ const search=async e=>{e.preventDefault();const q=query.trim();if(q.length<2){setError('검색어를 2자 이상 입력해주세요.');return;}const version=++searchVersion.current;setSearching(true);setSearched('');setError('');try{const result=await request(`/api/booths?workspace=${linkProfile?.mode==='add'?'searchArtists':'searchAccounts'}&${new URLSearchParams({projectId:project.id,boothId:project.boothId,q:q})}`);if(version===searchVersion.current){setAccounts(result.artists||result.accounts);setSearched(q);}}catch(e){if(version===searchVersion.current)setError(e.message);}finally{if(version===searchVersion.current)setSearching(false);}};
  const [inviteLink,setInviteLink]=useState('');
  const inviteDialog=useRef(null),inviteInput=useRef(null);
  useEffect(()=>{if(inviteLink){if(!inviteDialog.current?.open)inviteDialog.current?.showModal();inviteInput.current?.select();}else if(inviteDialog.current?.open)inviteDialog.current.close();},[inviteLink]);
@@ -52,7 +51,7 @@ export default function EventAccessPanel({request,project,onChange,beforeChange}
  };
  return <div className="event-access-panel">
  {error&&<p role="alert" className="inventory-error">{error}</p>}
- <section className="management-product"><div className="management-product-header"><h2>참여 제작자</h2><div className="event-header-actions"><button type="button" className="management-back" disabled={disabled} onClick={copyInvite}>초대 링크 복사</button><button type="button" className="management-add" disabled={disabled} onClick={()=>{setError('');setLinkProfile({mode:'add'});}}>제작자 추가</button></div></div><div className="account-card-body">
+ <section className="management-product"><div className="management-product-header"><h2>참여 제작자</h2><div className="event-header-actions"><button type="button" className="management-back event-invite-button" disabled={disabled} onClick={copyInvite}>초대 링크 복사</button><button type="button" className="management-add" disabled={disabled} onClick={()=>{setError('');setLinkProfile({mode:'add'});}}>제작자 추가</button></div></div><div className="account-card-body">
 
   <div className="management-table-wrap event-participant-table-wrap"><table className="management-table event-participant-table"><thead><tr><th scope="col">제작자</th><th scope="col">등록 상품</th><th scope="col">참여일</th><th scope="col">행사 권한</th><th scope="col">관리</th></tr></thead><tbody>
   {data?.profiles.filter(p=>p.status==='active'&&(p.display_name!=='미지정'||p.linked_user_id)).map(p=>{const staff=data.staff.find(s=>s.user_id===p.linked_user_id);return <tr key={p.owner_id}>
@@ -73,15 +72,10 @@ export default function EventAccessPanel({request,project,onChange,beforeChange}
  </dialog>
  <dialog ref={dialog} className="app-confirm-dialog event-account-dialog" aria-labelledby="event-account-dialog-title" onCancel={e=>{if(disabled)e.preventDefault();else setLinkProfile(null);}}>
   <div className="management-heading"><h2 id="event-account-dialog-title">{linkProfile?.mode==='add'?'제작자 추가':`${linkProfile?.display_name||''} 계정 연결`}</h2><button type="button" className="management-back" disabled={disabled} onClick={()=>setLinkProfile(null)}>닫기</button></div>
-  {direct&&linkProfile?.mode==='add'&&<button type="button" className="management-back" disabled={disabled||searching} onClick={()=>setDirect(false)}>검색으로 돌아가기</button>}
-  {direct&&linkProfile?.mode==='add'?<form className="account-form" onSubmit={async e=>{e.preventDefault();const result=await send('createEventCreator',{name:directName.trim()});if(result?.added)setLinkProfile(null);}}><label>제작자 이름<input autoFocus required maxLength={80} value={directName} disabled={disabled} onChange={e=>setDirectName(e.target.value)}/></label><button className="management-add" disabled={disabled||!directName.trim()}>제작자 등록</button></form>:<>
-  <form className="event-account-search" onSubmit={search}><label><span className="sr-only">{linkProfile?.mode==='add'?'제작자 이름·닉네임·아이디·이메일 검색':'계정 닉네임·아이디·이메일 검색'}</span><input autoFocus required minLength={2} maxLength={100} value={query} onChange={e=>setQuery(e.target.value)} placeholder={linkProfile?.mode==='add'?'제작자 이름·닉네임·아이디·이메일':'닉네임·아이디·이메일'} disabled={disabled||searching}/></label><button className="management-add" disabled={disabled||searching}>{searching?'검색 중…':'검색'}</button></form>
-
-  {linkProfile?.mode==='add'&&<button type="button" className="management-back" disabled={disabled||searching} onClick={()=>{setDirectName(query.trim());setDirect(true);}}>새 제작자 등록</button>}
-  </>}
+  <form className="event-account-search" onSubmit={search}><label><span className="sr-only">{linkProfile?.mode==='add'?'제작자 이름·닉네임·아이디·이메일 검색':'계정 닉네임·아이디·이메일 검색'}</span><input autoFocus maxLength={100} value={query} onChange={e=>setQuery(e.target.value)} placeholder={linkProfile?.mode==='add'?'제작자 이름·닉네임·아이디·이메일':'닉네임·아이디·이메일'} disabled={disabled||searching}/></label><button type="submit" className="management-add" disabled={disabled||searching}>{searching?'검색 중…':'검색'}</button></form>
   {error&&<p role="alert" className="inventory-error">{error}</p>}
-  
-  {!direct&&<ul className="event-account-results">{accounts.map(account=><li key={account.id}><div><strong>{account.nickname||account.display_name||account.id}</strong><small>{account.display_name||account.id}</small></div><button type="button" className="management-add" disabled={disabled||Boolean(account.registered)} onClick={async()=>{const result=linkProfile.mode==='add'?await send('addEventArtist',{profileId:account.id,role:'none'}):await send('linkEventArtistAccount',{profileId:linkProfile.id,targetUserId:account.id});if(result?.linked||result?.added)setLinkProfile(null);}}>{account.registered?'등록됨':linkProfile?.mode==='add'?'등록':'연결'}</button></li>)}</ul>}
+  {accounts.length>0&&<ul className="event-account-results">{accounts.map(account=><li key={account.id}><div><strong>{account.nickname||account.display_name||account.id}</strong><small>{account.display_name||account.id}</small></div><button type="button" className="management-add" disabled={disabled||Boolean(account.registered)} onClick={async()=>{const result=linkProfile?.mode==='add'?await send('addEventArtist',{profileId:account.id,role:'none'}):await send('linkEventArtistAccount',{profileId:linkProfile.id,targetUserId:account.id});if(result?.linked||result?.added)setLinkProfile(null);}}>{account.registered?'등록됨':linkProfile?.mode==='add'?'+ 추가':'연결'}</button></li>)}</ul>}
+  {searched&&!searching&&accounts.length===0&&<div className="event-account-empty"><p>검색된 항목이 없습니다</p>{linkProfile?.mode==='add'&&<><p>계정 연결 없이 <strong>{searched}</strong> 이름의 제작자를 추가하시겠습니까?</p><button type="button" className="management-add" disabled={disabled||searched.length>80} onClick={async()=>{const result=await send('createEventCreator',{name:searched});if(result?.added)setLinkProfile(null);}}>+ 추가</button></>}</div>}
  </dialog>
  </div>;
 }

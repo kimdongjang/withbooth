@@ -1121,3 +1121,9 @@ public/robots.txt는 홈 및 렌더링 자산 크롤링을 허용하고 /api/, /
 - 동기화 전 상품은 `pendingSync` 표시로 상품 관리 목록에 로컬 값으로 보이고(`withLocalEventProducts`), 이미지·재고 배정 변경은 동기화 뒤에만 가능하다. 온라인 상태의 등록·이미지와 함께 등록·이미지로 일괄 추가·재고 배정 변경·참여 제작자의 등록은 서버로 바로 보낸다.
 - 순서 변경 권한: `eventPermissions`에 `canReorder`(운영자 owner/manager와 부운영자 assistant)를 두고 서버는 `reorderProducts`/`reorderBundles`를 `reorder` 권한으로 검사한다. 부스참여자(seller)·참여 제작자는 순서를 바꿀 수 없으며 화면의 순서 변경 토글도 `canReorder`로만 표시한다.
 - 확장: 새 설정 작업은 `settingsReducers`에 순수 리듀서를, 서버 영수증(`queuedSettingsActions` 또는 해당 API의 requestId)을 추가하고, `/api/pos` 밖이면 `queuedEndpoint`에 경로를 지정한다.
+
+## 새 상품 제작자 직접 입력과 제작자 추가 목록 (2026-11-09)
+
+- 새 행사 상품 등록(운영자, `allowDirectArtist`)은 `CreatorField`에 `searchable={false}`를 넘겨 제작자 검색·직접 입력 토글을 숨긴다. 기본값은 미지정이고, 미지정 선택 중에는 제작자 이름 입력이 바로 보인다. 비워 두면 기존 미지정 등록, 이름을 넣으면 기존 `registerEventArtistProduct`의 `artistName`으로 계정 없는 제작자를 만든다(오프라인 큐는 기존대로 미지정). 상품 상세 제작자 편집의 검색 팝업은 유지한다.
+- 행사 관리의 제작자 추가·계정 연결 팝업은 파란색 검색 버튼(2자 미만이면 오류 표시)으로 검색한다. 결과는 아래 목록에 오른쪽 '+ 추가'(계정 연결은 '연결') 버튼으로 표시한다. 결과가 없으면 '검색된 항목이 없습니다'와 함께, 추가 팝업에서는 검색한 이름을 계정 연결 없이 추가하는 '+ 추가'를 보여 기존 `createEventCreator`로 등록한다. 별도 직접 입력 화면은 없앴다. '초대 링크 복사'는 연두색 바탕·짙은 초록 글씨 버튼이다.
+- 판매 현황(`#/settlement`)의 전체 매출 요약은 탭 아래에 표시한다.
