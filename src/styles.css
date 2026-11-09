@@ -2345,3 +2345,9 @@ body:has(.api-read-indicator) .loading-state{visibility:hidden}
 .event-account-empty p+p{color:#475569}
 #root .event-access-panel .event-invite-button{border-color:#bef264;background:#ecfccb;color:#365314}
 #root .event-access-panel .event-invite-button:hover:not(:disabled){border-color:#a3e635;background:#d9f99d;color:#1a2e05}
+/* Sales history search: product and creator suggestions under the input. */
+.settlement-suggest{position:relative;min-width:0}
+.settlement-suggest-list{position:absolute;z-index:20;top:calc(100% + 4px);left:0;right:0;max-height:240px;margin:0;padding:4px 0;overflow-y:auto;list-style:none;border:1px solid #e2e8f0;border-radius:8px;background:#fff;box-shadow:0 8px 24px rgba(15,23,42,.12)}
+.settlement-suggest-list li{padding:8px 12px;color:#0f172a;font-size:14px;cursor:pointer;overflow-wrap:anywhere}
+.settlement-suggest-list li:hover,.settlement-suggest-list li[aria-selected="true"]{background:#eff6ff;color:#1d4ed8}
+.creator-field-direct .creator-field-note{flex:1 1 100%;margin:0}

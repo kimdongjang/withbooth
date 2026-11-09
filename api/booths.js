@@ -38,7 +38,7 @@ export function createHandler(pool) {
         }
         if(req.query?.workspace==='stockParticipants') {
           await authorizeEvent(sql,actor.id,req.query.projectId,'configure',req.query.boothId);
-          const profiles=(await sql`SELECT o.id AS profile_id,o.id AS owner_id,o.linked_user_id,CASE WHEN o.display_name='미지정' AND u.id IS NOT NULL THEN COALESCE(NULLIF(u.nickname,''),u.id) ELSE o.display_name END AS display_name FROM pos_event_artists e
+          const profiles=(await sql`SELECT o.id AS profile_id,o.id AS owner_id,o.linked_user_id,u.id AS user_id,u.nickname,CASE WHEN o.display_name='미지정' AND u.id IS NOT NULL THEN COALESCE(NULLIF(u.nickname,''),u.id) ELSE o.display_name END AS display_name FROM pos_event_artists e
             JOIN pos_stock_owners o ON o.id=e.owner_id LEFT JOIN pos_admins u ON u.id=o.linked_user_id AND u.deleted_at IS NULL WHERE e.project_id=${req.query.projectId} AND e.status='active' ORDER BY o.id`).rows;
           const administrators=(await sql`SELECT o.id AS owner_id,COALESCE(NULLIF(o.display_name,'미지정'),NULLIF(u.nickname,''),u.id,'관리자') AS display_name,u.id AS user_id
             FROM pos_booth_members m JOIN pos_admins u ON u.id=m.user_id AND u.deleted_at IS NULL
@@ -50,7 +50,7 @@ export function createHandler(pool) {
           for(const original of originals)if(!choices.some(p=>p.owner_id===original.owner_id))choices.push({...original,catalog:true,stockOnly:true});
           if(event.permissions.canManage)for(const admin of administrators) {
             const ownerId=admin.owner_id||(admin.user_id===actor.id?`admin:${actor.id}`:null);
-            if(ownerId&&!choices.some(p=>p.owner_id===ownerId))choices.push({owner_id:ownerId,display_name:admin.display_name,catalog:false});
+            if(ownerId&&!choices.some(p=>p.owner_id===ownerId))choices.push({owner_id:ownerId,display_name:admin.display_name,user_id:admin.user_id,catalog:false});
           }
           await client.query('COMMIT');return res.status(200).json({profiles:choices});
         }

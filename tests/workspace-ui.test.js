@@ -219,11 +219,24 @@ test('existing stock picker reuses original identity and allocation while exclud
 });
 
 
+test('new product creator dropdown lists nickname(id), defaults to 미지정 and opens the name input from 새 제작자 추가',async()=>{
+ const h=await harness('components/CreatorField.jsx');let value={};
+ const props=()=>({creators:[{ownerId:'linked',label:'김작가',optionLabel:'김닉(kim)',linked:true}],value,onChange:next=>{value={...value,...next};},project:{id:'event',boothId:'booth'},allowDirect:true,searchable:false});
+ let tree=h.render(props());const select=tree.find(n=>n.type==='select');
+ assert.equal(select.props.value,'');assert.equal(select.props.children[0].props.children,'+ 새 제작자 추가');
+ assert.ok(tree.some(n=>n.type==='option'&&n.props.value==='linked'&&n.props.children[0]==='김닉(kim)'));
+ assert.equal(tree.some(n=>n.type==='button'&&n.props.children==='제작자 검색'),false);assert.equal(tree.some(n=>n.type==='input'&&n.props.maxLength===80),false);
+ select.props.onChange({target:{value:select.props.children[0].props.value}});tree=h.render(props());
+ const input=tree.find(n=>n.type==='input'&&n.props.maxLength===80);assert.equal(input.props.required,true);
+ assert.ok(tree.some(n=>n.type==='p'&&String(n.props.children).includes('자동 등록')));
+ input.props.onChange({target:{value:'새 작가'}});assert.deepEqual([value.ownerId,value.artistName],['','새 작가']);
+});
+
 test('creator field searches event/global creators, adds without selling rights, creates direct profiles and links accounts',async()=>{
  const h=await harness('components/CreatorField.jsx'),calls=[];let value={};
  const request=async(url,options)=>{if(!options)return url.includes('searchAccounts')?{accounts:[{id:'account',nickname:'계정'}]}:{artists:[{id:'profile',owner_id:'owner',display_name:'검색 제작자',registered:false,linked_user_id:'account'}]};const cmd=JSON.parse(options.body);calls.push(cmd);return {ownerId:cmd.action==='createEventCreator'?'direct':'owner',profileId:cmd.action==='createEventCreator'?'direct-profile':'profile',linked:cmd.action==='linkEventArtistAccount'};};
  const props=()=>({creators:[{ownerId:'event-owner',profileId:'event-profile',label:'행사 제작자',linked:true}],value,onChange:next=>{value=next;},request,project:{id:'event',boothId:'booth'},allowDirect:true});
- let tree=h.render(props());assert.equal(tree.find(n=>n.type==='select').props.children[1][0].props.value,'event-owner');
+ let tree=h.render(props());assert.equal(tree.find(n=>n.type==='select').props.children[2][0].props.value,'event-owner');
  tree.find(n=>n.type==='button'&&n.props.children==='제작자 검색').props.onClick();h.render(props());await h.flush();tree=h.render(props());tree.find(n=>n.props['aria-label']==='제작자 검색어').props.onChange({target:{value:'검색'}});tree=h.render(props());await tree.find(n=>n.type==='button'&&n.props.children==='검색').props.onClick();tree=h.render(props());await tree.find(n=>n.type==='button'&&n.props.children==='행사에 추가').props.onClick();assert.equal(value.ownerId,'owner');assert.equal(calls[0].payload.role,'none');
  tree=h.render(props());tree.find(n=>n.type==='button'&&n.props.children==='직접 입력').props.onClick();tree=h.render(props());tree.find(n=>n.type==='input'&&n.props.maxLength===80).props.onChange({target:{value:'임의 제작자'}});tree=h.render(props());await tree.find(n=>n.type==='button'&&n.props.children==='제작자 추가').props.onClick();assert.equal(value.ownerId,'direct');assert.equal(calls[1].action,'createEventCreator');
  tree=h.render(props());await tree.find(n=>n.type==='button'&&n.props.children==='계정 연결').props.onClick();h.render(props());await h.flush();tree=h.render(props());tree.find(n=>n.props['aria-label']==='제작자 검색어').props.onChange({target:{value:'계정'}});tree=h.render(props());await tree.find(n=>n.type==='button'&&n.props.children==='검색').props.onClick();tree=h.render(props());await tree.find(n=>n.type==='button'&&n.props.children==='연결').props.onClick();assert.equal(calls[2].action,'linkEventArtistAccount');assert.equal(calls[2].payload.profileId,'direct-profile');assert.equal(calls[2].payload.targetUserId,'account');assert.equal(calls[2].payload.role,undefined);
