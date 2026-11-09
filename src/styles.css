@@ -2300,6 +2300,15 @@ body:has(.api-read-indicator) .loading-state{visibility:hidden}
 /* Compact row actions in the event participant table. */
 #root .event-participant-table .event-participant-actions :is(.management-back,.management-delete){min-height:32px;padding:4px 10px;font-size:13px;line-height:1.4}
 #root .event-participant-table .event-participant-actions .management-delete{border:1px solid #fecaca;background:#fff}
+/* Participant columns: creator takes the remaining width, the rest size to their content. */
+#root .event-participant-table th:nth-child(1){width:auto}
+#root .event-participant-table th:nth-child(2){width:88px}
+#root .event-participant-table th:nth-child(3){width:116px}
+#root .event-participant-table th:nth-child(4){width:136px}
+#root .event-participant-table th:nth-child(5){width:80px}
+#root .event-participant-table td:nth-child(n+2){text-align:center;white-space:nowrap}
+#root .event-participant-table td:nth-child(5) .event-participant-actions{justify-content:center}
+#root .event-participant-table select{width:100%;max-width:none}
 
 /* Nickname form: input and a content-sized save button stay on one row. */
 #root .account-page .account-profile-form{grid-template-columns:minmax(0,1fr) auto;align-items:end;gap:8px}
