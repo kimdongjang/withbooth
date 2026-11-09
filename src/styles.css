@@ -2281,6 +2281,10 @@ body:has(.api-read-indicator) .loading-state{visibility:hidden}
 #root .event-settlement-panel :is(.event-cost-card,.event-settlement-report)>.account-card-body{padding:0;gap:0}
 #root .event-settlement-panel :is(.event-cost-table-wrap,.event-settlement-report-scroll){border:0;border-radius:0}
 #root .event-settlement-panel .event-settlement-totals{padding:16px var(--event-content-space,20px)}
+/* Section headings, table edge cells and totals share the management page inset. */
+#root .event-settlement-panel .account-card-heading{min-height:64px;padding:12px var(--event-content-space,20px)}
+#root .event-settlement-panel .management-table :is(th,td):first-child{padding-left:var(--event-content-space,20px)}
+#root .event-settlement-panel .management-table :is(th,td):last-child{padding-right:var(--event-content-space,20px)}
 
 /* Signup privacy consent. */
 .auth-privacy{margin-bottom:12px;padding:12px;border:1px solid #e2e8f0;border-radius:8px;background:#f8fafc;font-size:13px}

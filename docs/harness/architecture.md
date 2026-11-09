@@ -631,7 +631,7 @@ flowchart LR
 
 | 저장소 | 데이터/키 | 특성 |
 | --- | --- | --- |
-| sessionStorage | `pos_admin_token`, `pos_admin_id`, `pos_selected_project_id` | 탭 세션 인증/선택; 새 세션 오프라인 인증 보장 없음 |
+| sessionStorage + localStorage `pos_session_v2` | `pos_admin_token`, `pos_admin_id`, `pos_selected_project_id` | 탭 세션 인증/선택. 웹·네이티브 모두 `{savedAt, values}`로 복사해 탭 종료/재시작 후 오프라인에서도 복원. 마지막 사용(앱 시작·값 변경) 후 30일 지나면 복원하지 않음. 로그아웃은 저장본 삭제, IndexedDB 주문은 유지. 기존 네이티브 `pos_native_session_v1`은 첫 실행 때 이전 |
 | IndexedDB `booth-pos-offline-db.orders` | 자동증가 id, projectId, localOrderId, createdAt, payload, syncStatus, retryCount, lastSyncAt | 상태: PENDING/SYNCING/SYNCED/FAILED/ARCHIVED; 주문과 취소 명령 저장 |
 | IndexedDB `posState` | `project:{projectId}:latest`, state, updatedAt | products/bundles/sales 스냅샷; 주문 큐와 별도 저장 |
 | Postgres `pos_admins` | id PK, email (대소문자/양끝 공백 무시 UNIQUE), password_hash, created_at, privacy_consented_at, privacy_policy_version | 신규 가입 이메일 필수; 기존 계정 NULL 허용. 회원가입은 `privacyConsent === true`가 아니면 400이며, 가입 시각과 서버 상수 `PRIVACY_POLICY_VERSION`을 동의 기록으로 저장한다(정책 이전 계정은 NULL). 탈퇴 시 이메일·닉네임·패스워드는 지우고 동의 기록은 남긴다 |
