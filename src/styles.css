@@ -763,7 +763,7 @@ input, select { background: white; color: #17243b; min-height: 36px; }
 }
 /* Product actions and bundle registration */
 .management-actions { display: flex; flex-wrap: wrap; justify-content: flex-end; gap: 8px; }
-.management-actions .management-add { display: inline-flex; align-items: center; justify-content: center; gap: 7px; }
+.management-actions .management-add { display: inline-flex; align-items: center; justify-content: center; flex: 0 0 auto; }
 .management-add-secondary { background: #eff6ff; color: #2563eb; border: 1px solid #bfdbfe; }
 .management-add-secondary:hover { background: #dbeafe; }
 .management-heading:has(.bulk-product-images) { align-items: flex-start; flex-wrap: wrap; }
@@ -798,9 +798,7 @@ input, select { background: white; color: #17243b; min-height: 36px; }
   .bundle-picker { max-height: 380px; }
 }
 @media (max-width: 480px) {
-  .management-heading:has(.bulk-product-images) .bulk-product-images { width: 100%; }
   .management-actions { justify-content: flex-start; }
-  .management-actions .management-add { flex: 1; padding: 10px; font-size: 12px; }
   .bundle-create-body .management-fields { grid-template-columns: minmax(0, 1fr); }
 }
 
@@ -1542,6 +1540,7 @@ input, select { background: white; color: #17243b; min-height: 36px; }
 #root :is(.management-add,.management-back){border-width:1px;border-style:solid}
 #root .management-add{border-color:transparent}
 #root .management-back{border-color:#e2e8f0}
+#root :is(.management-add,.management-back)>svg{width:16px;height:16px;flex-shrink:0}
 .event-sales-catalog>.management-heading{justify-content:flex-start;align-items:center;gap:8px;flex-wrap:wrap}
 .event-sales-catalog>.management-heading>h2{margin-right:auto}
 .event-sales-catalog>.management-heading>button{width:auto;flex:0 0 auto}
@@ -2282,6 +2281,7 @@ body:has(.api-read-indicator) .loading-state{visibility:hidden}
 #root .event-settlement-panel :is(.event-cost-table-wrap,.event-settlement-report-scroll){border:0;border-radius:0}
 #root .event-settlement-panel .event-settlement-totals{padding:16px var(--event-content-space,20px)}
 /* Section headings, table edge cells and totals share the management page inset. */
+#root .event-settlement-panel>.event-settlement-heading{min-height:64px;padding:12px var(--event-content-space,20px);border:1px solid #e2e8f0;border-radius:12px;background:#fff}
 #root .event-settlement-panel .account-card-heading{min-height:64px;padding:12px var(--event-content-space,20px)}
 #root .event-settlement-panel .management-table :is(th,td):first-child{padding-left:var(--event-content-space,20px)}
 #root .event-settlement-panel .management-table :is(th,td):last-child{padding-right:var(--event-content-space,20px)}
