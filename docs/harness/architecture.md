@@ -640,7 +640,7 @@ flowchart LR
 | `pos_bundles` | (project_id,id) PK, name, price, items JSONB | items = productId/qty 목록 |
 | `pos_sales` | (project_id,id) PK, time, method, total, lines JSONB | localOrderId를 서버 판매 ID로 사용 |
 
-상품은 id/productCode, goodsType, vtuberName, creatorName, stockQty, initialStockQty, size, price, setCreatorName/setGroupName/setPrice/setDescription, isActive, timestamps를 사용한다. 표시 호환용 name/stock도 존재한다. 상품의 세트 메타데이터와 실제 판매용 bundles는 별개이며 자동 연결 로직은 없다.
+상품은 id, goodsType, vtuberName, creatorName, stockQty, initialStockQty, price, isActive, timestamps를 사용한다. 표시 호환용 name/stock도 존재한다. 세트는 판매용 bundles만 사용한다. 2026-11-10부터 서버는 pos_products의 product_code(항상 id와 같던 별칭)·size·set_creator_name·set_group_name·set_price·set_description 열을 만들거나 기록·응답하지 않는다. 이전 클라이언트·백업의 productCode는 id가 없을 때만 id로 쓰고 나머지 필드는 무시한다(백업 복원은 jsonb_populate_recordset이라 남은 키를 버린다). 기존 DB의 열 삭제는 새 코드 배포 후 `scripts/dropLegacyProductColumns.mjs`(기본 리허설·ROLLBACK, `--apply`일 때만 COMMIT, `DROP_LEGACY_DATABASE_URL`)로 별도 DB에서 먼저 확인하고 수행한다. product_code가 id와 다른 행이 있으면 중단한다.
 
 상품의 선택적 `imageUrl`은 Postgres `image_url` 및 IndexedDB 상품 스냅샷에 보존한다. `/api/product-images`는 인증·프로젝트 소유권·상품 존재·경로를 확인한 후 JPG/PNG/WebP, 최대 5MiB의 Blob 직접 업로드 토큰을 발급한다. 파일은 Public Vercel Blob에 저장되고 판매 카드와 상품 관리에서 URL로 표시한다. `updateProductImage`는 해당 프로젝트/상품 이미지 URL만 변경하며 null로 제거한다. 기존 DB의 image_url은 ADD COLUMN IF NOT EXISTS로 추가한다. 이미지 교체/제거 시 이전 Blob은 삭제하지 않으므로 별도 정리 정책이 필요하다. 이미지 URL은 공개이며 민감한 이미지를 저장하지 않는다. 오프라인에서 외부 이미지 표시를 보장하지 않고 로드 실패 시 대체 문구를 표시한다.
 

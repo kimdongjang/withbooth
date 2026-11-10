@@ -31,25 +31,19 @@ const displayName = (product) => product.name || [product.vtuberName, product.go
 function normalizeProduct(product = {}) {
   if (product.genre != null && (typeof product.genre !== 'string' || product.genre.length > 200)) throw Object.assign(new Error('작품/시리즈는 200자 이내로 입력해주세요.'), { status: 400 });
   const now = new Date().toISOString();
-  const productCode = product.productCode || product.id || uid();
   const stockQty = Number(product.stockQty ?? product.stock ?? 0) || 0;
   return {
-    id: String(product.id || productCode),
+    // productCode is a legacy alias of id from older clients and backups.
+    id: String(product.id || product.productCode || uid()),
     name: displayName(product),
-    productCode: String(productCode),
     goodsType: product.goodsType == null ? (product.name || '새 굿즈') : String(product.goodsType),
     vtuberName: product.vtuberName || '',
     creatorName: product.creatorName || '',
     genre: product.genre == null ? null : product.genre.trim(),
     stockQty,
     initialStockQty: Number(product.initialStockQty ?? stockQty) || 0,
-    size: product.size || null,
     imageUrl: product.imageUrl || null,
     price: Number(product.price) || 0,
-    setCreatorName: product.setCreatorName || null,
-    setGroupName: product.setGroupName || null,
-    setPrice: product.setPrice == null ? null : Number(product.setPrice) || 0,
-    setDescription: product.setDescription || null,
     isActive: product.isActive !== false,
     createdAt: product.createdAt || now,
     updatedAt: now,
@@ -71,7 +65,7 @@ async function initDb() {
   await sql`ALTER TABLE pos_projects ADD COLUMN IF NOT EXISTS deleted_at TIMESTAMPTZ`;
   await sql`CREATE TABLE IF NOT EXISTS pos_event_details(project_id TEXT PRIMARY KEY REFERENCES pos_projects(id) ON DELETE CASCADE,venue TEXT NOT NULL DEFAULT '')`;
   await sql`CREATE INDEX IF NOT EXISTS pos_projects_admin_id_idx ON pos_projects(admin_id)`;
-  await sql`CREATE TABLE IF NOT EXISTS pos_products (project_id TEXT NOT NULL REFERENCES pos_projects(id) ON DELETE CASCADE, id TEXT NOT NULL, name TEXT NOT NULL, price INTEGER NOT NULL, stock INTEGER NOT NULL, product_code TEXT, goods_type TEXT, vtuber_name TEXT, creator_name TEXT, stock_qty INTEGER, initial_stock_qty INTEGER, size TEXT, set_creator_name TEXT, set_group_name TEXT, set_price INTEGER, set_description TEXT, is_active BOOLEAN DEFAULT TRUE, created_at TIMESTAMPTZ DEFAULT NOW(), updated_at TIMESTAMPTZ DEFAULT NOW(), PRIMARY KEY(project_id, id))`;
+  await sql`CREATE TABLE IF NOT EXISTS pos_products (project_id TEXT NOT NULL REFERENCES pos_projects(id) ON DELETE CASCADE, id TEXT NOT NULL, name TEXT NOT NULL, price INTEGER NOT NULL, stock INTEGER NOT NULL, goods_type TEXT, vtuber_name TEXT, creator_name TEXT, stock_qty INTEGER, initial_stock_qty INTEGER, is_active BOOLEAN DEFAULT TRUE, created_at TIMESTAMPTZ DEFAULT NOW(), updated_at TIMESTAMPTZ DEFAULT NOW(), PRIMARY KEY(project_id, id))`;
   await sql`ALTER TABLE pos_products ADD COLUMN IF NOT EXISTS image_url TEXT`;
   await sql`ALTER TABLE pos_products ADD COLUMN IF NOT EXISTS genre TEXT`;
   await sql`ALTER TABLE pos_products ADD COLUMN IF NOT EXISTS sale_number INTEGER CHECK (sale_number > 0)`;
@@ -116,17 +110,11 @@ async function initDb() {
       END LOOP;
     END $$`;
   await sql`ALTER TABLE pos_products
-    ADD COLUMN IF NOT EXISTS product_code TEXT,
     ADD COLUMN IF NOT EXISTS goods_type TEXT,
     ADD COLUMN IF NOT EXISTS vtuber_name TEXT,
     ADD COLUMN IF NOT EXISTS creator_name TEXT,
     ADD COLUMN IF NOT EXISTS stock_qty INTEGER,
     ADD COLUMN IF NOT EXISTS initial_stock_qty INTEGER,
-    ADD COLUMN IF NOT EXISTS size TEXT,
-    ADD COLUMN IF NOT EXISTS set_creator_name TEXT,
-    ADD COLUMN IF NOT EXISTS set_group_name TEXT,
-    ADD COLUMN IF NOT EXISTS set_price INTEGER,
-    ADD COLUMN IF NOT EXISTS set_description TEXT,
     ADD COLUMN IF NOT EXISTS is_active BOOLEAN DEFAULT TRUE,
     ADD COLUMN IF NOT EXISTS created_at TIMESTAMPTZ DEFAULT NOW(),
     ADD COLUMN IF NOT EXISTS updated_at TIMESTAMPTZ DEFAULT NOW()`;
@@ -558,10 +546,10 @@ async function insertProduct(projectId, input, onlyMissing = false, saleNumber =
   if (saleNumber == null) await ensureProductSaleNumbers(projectId);
   const position = product.isActive ? (saleNumber ?? Number((await sql`SELECT COALESCE(MAX(sale_number),0)+1 AS next FROM pos_products WHERE project_id=${projectId} AND COALESCE(is_active,TRUE)=TRUE`).rows[0]?.next || 1)) : null;
   if (onlyMissing) {
-    await sql`INSERT INTO pos_products (project_id, id, name, price, stock, product_code, goods_type, vtuber_name, creator_name, stock_qty, initial_stock_qty, size, set_creator_name, set_group_name, set_price, set_description, is_active, created_at, updated_at, image_url, genre, sale_number) VALUES (${projectId}, ${product.id}, ${displayName(product)}, ${product.price}, ${product.stockQty}, ${product.productCode}, ${product.goodsType}, ${product.vtuberName}, ${product.creatorName}, ${product.stockQty}, ${product.initialStockQty}, ${product.size}, ${product.setCreatorName}, ${product.setGroupName}, ${product.setPrice}, ${product.setDescription}, ${product.isActive}, ${product.createdAt}, ${product.updatedAt}, ${product.imageUrl}, ${product.genre}, ${position}) ON CONFLICT (project_id, id) DO NOTHING`;
+    await sql`INSERT INTO pos_products (project_id, id, name, price, stock, goods_type, vtuber_name, creator_name, stock_qty, initial_stock_qty, is_active, created_at, updated_at, image_url, genre, sale_number) VALUES (${projectId}, ${product.id}, ${displayName(product)}, ${product.price}, ${product.stockQty}, ${product.goodsType}, ${product.vtuberName}, ${product.creatorName}, ${product.stockQty}, ${product.initialStockQty}, ${product.isActive}, ${product.createdAt}, ${product.updatedAt}, ${product.imageUrl}, ${product.genre}, ${position}) ON CONFLICT (project_id, id) DO NOTHING`;
     return;
   }
-  await sql`INSERT INTO pos_products (project_id, id, name, price, stock, product_code, goods_type, vtuber_name, creator_name, stock_qty, initial_stock_qty, size, set_creator_name, set_group_name, set_price, set_description, is_active, created_at, updated_at, image_url, genre, sale_number) VALUES (${projectId}, ${product.id}, ${displayName(product)}, ${product.price}, ${product.stockQty}, ${product.productCode}, ${product.goodsType}, ${product.vtuberName}, ${product.creatorName}, ${product.stockQty}, ${product.initialStockQty}, ${product.size}, ${product.setCreatorName}, ${product.setGroupName}, ${product.setPrice}, ${product.setDescription}, ${product.isActive}, ${product.createdAt}, ${product.updatedAt}, ${product.imageUrl}, ${product.genre}, ${position})`;
+  await sql`INSERT INTO pos_products (project_id, id, name, price, stock, goods_type, vtuber_name, creator_name, stock_qty, initial_stock_qty, is_active, created_at, updated_at, image_url, genre, sale_number) VALUES (${projectId}, ${product.id}, ${displayName(product)}, ${product.price}, ${product.stockQty}, ${product.goodsType}, ${product.vtuberName}, ${product.creatorName}, ${product.stockQty}, ${product.initialStockQty}, ${product.isActive}, ${product.createdAt}, ${product.updatedAt}, ${product.imageUrl}, ${product.genre}, ${position})`;
 }
 
 async function seedProject(adminId, projectId) {
@@ -611,7 +599,7 @@ async function createProject(adminId, name, payload={}) {
 async function ensureProductSaleNumbers(projectId) {
   await sql`SELECT id FROM pos_projects WHERE id=${projectId} FOR UPDATE`;
   await sql`WITH numbered AS (
-    SELECT id,ROW_NUMBER() OVER (ORDER BY sale_number NULLS LAST,COALESCE(product_code,id),id)::integer AS position
+    SELECT id,ROW_NUMBER() OVER (ORDER BY sale_number NULLS LAST,id)::integer AS position
     FROM pos_products WHERE project_id=${projectId} AND COALESCE(is_active,TRUE)=TRUE
   ) UPDATE pos_products p SET sale_number=n.position FROM numbered n
     WHERE p.project_id=${projectId} AND p.id=n.id AND p.sale_number IS DISTINCT FROM n.position`;
@@ -673,7 +661,7 @@ async function readState(adminId, projectId) {
     settlementClosedAt: (await sql`SELECT closed_at FROM pos_event_settlements WHERE admin_id=${adminId} AND project_id=${projectId}`).rows[0]?.closed_at || null,
     archivedAt: (await sql`SELECT archived_at FROM pos_projects WHERE id = ${projectId}`).rows[0]?.archived_at || null,
     dataRevision: await dataRevision(projectId),
-    products: products.rows.map((product) => ({ id: product.id, saleNumber: product.sale_number == null ? null : Number(product.sale_number), inventoryId: product.inventory_id || null, productNumber: product.product_number || null, inventoryVersion: product.inventory_version ?? null, genre: product.genre || '', productCode: product.product_code || product.id, goodsType: product.goods_type ?? product.name, vtuberName: product.vtuber_name || '', creatorName: product.creator_name || '', stockQty: Number(product.stock_qty ?? product.stock ?? 0), initialStockQty: Number(product.initial_stock_qty ?? product.stock_qty ?? product.stock ?? 0), size: product.size || null, imageUrl: product.image_url || null, price: Number(product.price) || 0, setCreatorName: product.set_creator_name || null, setGroupName: product.set_group_name || null, setPrice: product.set_price == null ? null : Number(product.set_price) || 0, setDescription: product.set_description || null, isActive: product.is_active !== false, createdAt: new Date(product.created_at).toISOString(), updatedAt: new Date(product.updated_at).toISOString(), name: product.name, stock: Number(product.stock_qty ?? product.stock ?? 0) })),
+    products: products.rows.map((product) => ({ id: product.id, saleNumber: product.sale_number == null ? null : Number(product.sale_number), inventoryId: product.inventory_id || null, productNumber: product.product_number || null, inventoryVersion: product.inventory_version ?? null, genre: product.genre || '', goodsType: product.goods_type ?? product.name, vtuberName: product.vtuber_name || '', creatorName: product.creator_name || '', stockQty: Number(product.stock_qty ?? product.stock ?? 0), initialStockQty: Number(product.initial_stock_qty ?? product.stock_qty ?? product.stock ?? 0), imageUrl: product.image_url || null, price: Number(product.price) || 0, isActive: product.is_active !== false, createdAt: new Date(product.created_at).toISOString(), updatedAt: new Date(product.updated_at).toISOString(), name: product.name, stock: Number(product.stock_qty ?? product.stock ?? 0) })),
     bundles: bundles.rows.map(({ bundle_number, ...bundle }) => ({ ...bundle, bundleNumber: bundle_number == null ? null : Number(bundle_number), items: bundle.items || [] })),
     sales: sales.rows.map((sale) => ({ ...sale, time: new Date(sale.time).toISOString(), lines: sale.lines || [] })),
   };
@@ -874,7 +862,7 @@ function validateBackup(backup) {
     if(backup.schedule&&(!date(backup.schedule.starts_on)||!date(backup.schedule.ends_on)||String(backup.schedule.ends_on)<String(backup.schedule.starts_on)))invalid();
   }
   for (const p of backup.products) {
-    if (!text(p.name) || !integer(p.price) || !integer(p.stock) || (p.stock_qty != null && !integer(p.stock_qty)) || (p.initial_stock_qty != null && !integer(p.initial_stock_qty)) || (p.set_price != null && !integer(p.set_price)) || (p.is_active != null && typeof p.is_active !== 'boolean')) invalid();
+    if (!text(p.name) || !integer(p.price) || !integer(p.stock) || (p.stock_qty != null && !integer(p.stock_qty)) || (p.initial_stock_qty != null && !integer(p.initial_stock_qty)) || (p.is_active != null && typeof p.is_active !== 'boolean')) invalid();
     if(Number(p.stock_qty??p.stock)>Number(p.initial_stock_qty??p.stock_qty??p.stock))invalid();
     if (p.image_url != null) {
       if (!validImageUrl(p.image_url, '/')) invalid();
