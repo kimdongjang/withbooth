@@ -166,7 +166,7 @@ test('participant product form fixes the creator to self and registers an unallo
  const select=tree.find(n=>n.props['aria-label']==='제작자 재고에서 상품 선택');
  assert.deepEqual(nodes(select).filter(n=>n.type==='option').map(n=>n.props.value),['','mine-free']);
  select.props.onChange({target:{value:'mine-free'}});tree=h.render(props);
- assert.equal(tree.some(n=>n.type==='InventoryProductFields'),false);
+ assert.equal(tree.some(n=>n.type==='span'&&n.props.children==='최초 입고 수량'),false);
  tree.find(n=>n.type==='Input'&&n.props.max===7).props.onChange('4');tree=h.render(props);
  await tree.find(n=>n.type==='form').props.onSubmit({preventDefault(){}});
  assert.equal(JSON.stringify(allocated),JSON.stringify([['mine-free',{quantity:4,price:3000}]]));assert.equal(registered.length,0);assert.equal(returned,true);
@@ -183,6 +183,21 @@ test('creator product picker lists zero-stock products and registers them with q
  select.props.onChange({target:{value:'empty'}});tree=h.render(props);
  await tree.find(n=>n.type==='form').props.onSubmit({preventDefault(){}});
  assert.equal(JSON.stringify(allocated),JSON.stringify([['empty',{quantity:0,price:2000}]]));
+});
+
+test('picked creator product shows editable name, character, type and series and saves edits before allocation',async()=>{
+ const h=await harness('pages/ProductCreatePage.jsx');const calls=[];
+ const loadCreatorStock=async()=>[{id:'key',ownerId:'me',name:'키링',vtuberName:'토끼',goodsType:'키링',genre:'시리즈A',price:3000,warehouse:2,version:4,allocations:[]}];
+ const props={projectId:'event',artists:[{ownerId:'me',label:'나',owned:true}],fixedCreator:{ownerId:'me',label:'나'},loadCreatorStock,products:[],onBack(){},registerProduct:async()=>{},
+  onSaveStockProduct:async(item,info)=>{calls.push(['save',item.version,info]);return {inventory:{id:'key',version:5}};},onAllocateStock:async(item,values)=>calls.push(['allocate',item.version,item.name,values])};
+ h.render(props);await h.flush();h.render(props);await h.flush();let tree=h.render(props);
+ tree.find(n=>n.props['aria-label']==='제작자 재고에서 상품 선택').props.onChange({target:{value:'key'}});tree=h.render(props);
+ const fields=tree.find(n=>n.type==='InventoryProductFields');
+ assert.equal(JSON.stringify(fields.props.draft),JSON.stringify({name:'키링',vtuberName:'토끼',goodsType:'키링',genre:'시리즈A'}));
+ assert.equal(tree.some(n=>n.type==='span'&&n.props.children==='최초 입고 수량'),false);
+ fields.props.onChange('genre','시리즈B');tree=h.render(props);
+ await tree.find(n=>n.type==='form').props.onSubmit({preventDefault(){}});
+ assert.equal(JSON.stringify(calls),JSON.stringify([['save',4,{name:'키링',vtuberName:'토끼',goodsType:'키링',genre:'시리즈B'}],['allocate',5,'키링',{quantity:2,price:3000}]]));
 });
 
 test('inventory catalog does not count an allocation whose event product was removed as an event registration',async()=>{
