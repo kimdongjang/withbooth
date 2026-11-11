@@ -157,6 +157,51 @@ test('event product form offers direct artist input, hides unspecified and prese
 });
 
 
+test('participant product form fixes the creator to self and registers an unallocated stock item by event allocation',async()=>{
+ const h=await harness('pages/ProductCreatePage.jsx');const allocated=[],registered=[];let returned=false;
+ const stockItems=[{id:'mine-free',ownerId:'me',name:'내 키링',price:3000,warehouse:7,version:2,allocations:[]},{id:'mine-listed',ownerId:'me',name:'이미 배정',warehouse:3,allocations:[{projectId:'event'}]}],loaded=[];const loadCreatorStock=async ownerId=>{loaded.push(ownerId);return stockItems;};
+ const props={projectId:'event',artists:[{ownerId:'me',label:'나',owned:true},{ownerId:'other',label:'다른 제작자'}],fixedCreator:{ownerId:'me',label:'나'},loadCreatorStock,products:[],onBack(){returned=true;},registerProduct:async product=>registered.push(product),onAllocateStock:async(item,values)=>allocated.push([item.id,values])};
+ h.render(props);await h.flush();h.render(props);await h.flush();let tree=h.render(props);
+ assert.deepEqual(loaded,['me']);assert.equal(tree.some(n=>n.type==='CreatorField'),false);assert.ok(tree.some(n=>n.type==='p'&&n.props.children==='나'));
+ const select=tree.find(n=>n.props['aria-label']==='제작자 재고에서 상품 선택');
+ assert.deepEqual(nodes(select).filter(n=>n.type==='option').map(n=>n.props.value),['','mine-free']);
+ select.props.onChange({target:{value:'mine-free'}});tree=h.render(props);
+ assert.equal(tree.some(n=>n.type==='InventoryProductFields'),false);
+ tree.find(n=>n.type==='Input'&&n.props.max===7).props.onChange('4');tree=h.render(props);
+ await tree.find(n=>n.type==='form').props.onSubmit({preventDefault(){}});
+ assert.equal(JSON.stringify(allocated),JSON.stringify([['mine-free',{quantity:4,price:3000}]]));assert.equal(registered.length,0);assert.equal(returned,true);
+});
+
+test('creator product picker lists zero-stock products and registers them with quantity 0',async()=>{
+ const h=await harness('pages/ProductCreatePage.jsx');const allocated=[];
+ const loadCreatorStock=async()=>[{id:'empty',ownerId:'me',name:'품절 키링',price:2000,warehouse:0,version:1,allocations:[]}];
+ const props={projectId:'event',artists:[{ownerId:'me',label:'나',owned:true}],fixedCreator:{ownerId:'me',label:'나'},loadCreatorStock,products:[],onBack(){},registerProduct:async()=>{},onAllocateStock:async(item,values)=>allocated.push([item.id,values])};
+ h.render(props);await h.flush();h.render(props);await h.flush();let tree=h.render(props);
+ const select=tree.find(n=>n.props['aria-label']==='제작자 재고에서 상품 선택');
+ const option=nodes(select).find(n=>n.type==='option'&&n.props.value==='empty');
+ assert.ok(option&&!option.props.disabled);
+ select.props.onChange({target:{value:'empty'}});tree=h.render(props);
+ await tree.find(n=>n.type==='form').props.onSubmit({preventDefault(){}});
+ assert.equal(JSON.stringify(allocated),JSON.stringify([['empty',{quantity:0,price:2000}]]));
+});
+
+test('inventory catalog does not count an allocation whose event product was removed as an event registration',async()=>{
+ const h=await harness('components/PersonalInventoryCatalog.jsx',{'../utils/inventorySearch':{filterInventory}});
+ const items=[{id:'removed',name:'제거된 상품',warehouse:9,remaining:9,totalStock:10,allocations:[{projectId:'event',active:false,initial:1,sold:1,remaining:0}]},{id:'listed',name:'판매 상품',warehouse:5,remaining:10,totalStock:10,allocations:[{projectId:'event',active:true,initial:5,sold:0,remaining:5}]}];
+ const tree=h.render({items,events:[{id:'event',name:'12월 행사'}],navigate(){},renderDetail(){}});
+ const row=name=>nodes(tree.find(n=>n.type==='tr'&&nodes(n).some(c=>c.type==='a'&&c.props.children===name)));
+ assert.ok(row('제거된 상품').some(n=>n.props.children==='등록 안 됨'));
+ assert.ok(row('판매 상품').some(n=>n.type==='button'&&[n.props.children].flat().join('').startsWith('등록됨')));
+});
+
+test('new creator name entry on the product form has no account link button',async()=>{
+ const h=await harness('components/CreatorField.jsx');let value={};
+ const props=()=>({creators:[],value,onChange:next=>{value={...value,...next};},request:async()=>({}),project:{id:'event',boothId:'booth'},allowDirect:true,searchable:false});
+ let tree=h.render(props());const select=tree.find(n=>n.type==='select');select.props.onChange({target:{value:select.props.children[0].props.value}});
+ tree=h.render(props());tree.find(n=>n.type==='input'&&n.props.maxLength===80).props.onChange({target:{value:'새 작가'}});tree=h.render(props());
+ assert.equal(tree.some(n=>n.type==='button'&&n.props.children==='계정 연결'),false);
+});
+
 test('event product list uses event detail URLs and direct entry renders the requested event product',async()=>{
  const h=await harness('components/EventSalesCatalog.jsx');const opened=[];
  const item={id:'stock',name:'상품',allocations:[{projectId:'event',productId:'uaerhod',initial:10,sold:1,remaining:9}]};

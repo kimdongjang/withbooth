@@ -128,7 +128,7 @@ async function projection(sql,item,ownerId,boothId) {
   const scopes=(await sql`SELECT e.id,b.booth_id FROM pos_projects e JOIN pos_event_booths b ON b.project_id=e.id WHERE e.deleted_at IS NULL AND e.id=ANY(${source.links.map(l=>l.project_id)}::text[])`).rows;
   return {...item.product,id:stockId(item),inventoryId:item.id,custodianId:item.admin_id,ownerId,name:item.product.name,price:Number(item.product.price||0),version:item.version,
     stockSummary:{sold:balance.allocations.reduce((n,a)=>n+a.sold,0),eventRemaining:balance.allocations.reduce((n,a)=>n+a.remaining,0),unallocated:balance.warehouse,other:Math.max(0,balance.totalStock-balance.warehouse-balance.allocations.reduce((n,a)=>n+a.sold+a.remaining,0))},warehouse:balance.warehouse,totalStock:balance.totalStock,minimumTotalStock:balance.unavailable,remaining:balance.remaining,totalReceived:Number(item.total_received??balance.totalStock),
-    allocations:balance.allocations.filter(a=>scopes.some(s=>s.id===a.projectId&&(!boothId||s.booth_id===boothId))).map(a=>({...a,price:Number(source.products.find(p=>p.project_id===a.projectId&&p.id===a.productId)?.price||0)}))};
+    allocations:balance.allocations.filter(a=>scopes.some(s=>s.id===a.projectId&&(!boothId||s.booth_id===boothId))).map(a=>{const product=source.products.find(p=>p.project_id===a.projectId&&p.id===a.productId);return {...a,price:Number(product?.price||0),active:product?.is_active!==false};})};
 }
 
 export async function artistStockView(sql,userId,{ownerId,boothId,projectId}) {
