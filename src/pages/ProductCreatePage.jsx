@@ -8,7 +8,7 @@ import InventoryProductFields from '../components/InventoryProductFields';
 import { prepareProductImage } from '../utils/productImage';
 import { uid } from '../utils/productDisplay';
 
-export default function ProductCreatePage({ projectId, onImageChange, readOnly, saving, products, registerProduct, onBack, artists, saveImage, allowDirectArtist = false,creatorRequest,creatorProject,onRefreshCreators,fixedCreator,loadCreatorStock,onAllocateStock,onSaveStockProduct }) {
+export default function ProductCreatePage({ projectId, onImageChange, readOnly, saving, products, registerProduct, onBack, artists, saveImage, allowDirectArtist = false,creatorRequest,creatorProject,onRefreshCreators,fixedCreator,loadCreatorStock,onAllocateStock,onSaveStockProduct,stockLocked = false }) {
   const pendingKey = `pos_event_product_registration:${artists ? 'artist:' : ''}${projectId}`;
   const pending = useRef(null);
   const [draft, setDraft] = useState(() => {
@@ -60,7 +60,7 @@ export default function ProductCreatePage({ projectId, onImageChange, readOnly, 
     const item = creatorStock.find(row => row.id === id);
     setStockId(id);
     setStockInfo(item ? infoOf(item) : null);
-    setStockQty(String(item ? Math.max(0, Number(item.warehouse) || 0) : 0));
+    setStockQty(String(item && !stockLocked ? Math.max(0, Number(item.warehouse) || 0) : 0));
     setStockPrice(String(item?.price ?? 0));
     setImageError('');
   };
@@ -111,9 +111,9 @@ export default function ProductCreatePage({ projectId, onImageChange, readOnly, 
     if (readOnly || saving || preparing || creatorBusy || submitting.current) return;
     if (stockItem) return allocateStock();
     const price = Number(draft.price);
-    const stockQty = Number(draft.stockQty);
+    const stockQty = stockLocked ? 0 : Number(draft.stockQty);
     if (artists && !allowDirectArtist && !artists.some(artist => artist.ownerId === draft.ownerId)) return alert('행사에 등록된 제작자를 선택해주세요.');
-    if (!draft.name.trim() || draft.price === '' || draft.stockQty === '' || !Number.isSafeInteger(price) || price < 0 || price > 2147483647 || !Number.isSafeInteger(stockQty) || stockQty < 0 || stockQty > 2147483647) return alert('상품 이름과 0 이상의 정수 판매가·재고를 입력해주세요.');
+    if (!draft.name.trim() || draft.price === '' || (!stockLocked && draft.stockQty === '') || !Number.isSafeInteger(price) || price < 0 || price > 2147483647 || !Number.isSafeInteger(stockQty) || stockQty < 0 || stockQty > 2147483647) return alert('상품 이름과 0 이상의 정수 판매가·재고를 입력해주세요.');
     const product = {
       ...draft, name: draft.name.trim(), productCode: draft.id, goodsType: draft.goodsType.trim(), vtuberName: draft.vtuberName.trim(), creatorName: artists ? (artists.find(artist => artist.ownerId === draft.ownerId)?.label || draft.creatorName || draft.artistName?.trim() || '') : draft.creatorName.trim(), genre: draft.genre.trim(),
       price, stockQty, stock: stockQty, initialStockQty: stockQty, size: '', isActive: true,
@@ -172,16 +172,16 @@ export default function ProductCreatePage({ projectId, onImageChange, readOnly, 
             {onAllocateStock && loadCreatorStock && draft.ownerId && !registered && !uncertain && <label className="management-field"><span>상품 선택</span><select aria-label="제작자 재고에서 상품 선택" value={stockId} disabled={stockLoad.loading} onChange={event => chooseStock(event.target.value)}><option value="">새 상품으로 등록</option>{creatorStock.map(item => <option key={item.id} value={item.id} disabled={item.quantityEditable === false}>{item.name} · 재고 {Math.max(0, Number(item.warehouse) || 0)}개</option>)}</select>{stockLoad.error && <small role="alert" className="inventory-error">{stockLoad.error}</small>}</label>}
             {stockItem ? <>
             <InventoryProductFields hideCreator draft={stockInfo || infoOf(stockItem)} products={products} onChange={(key, value) => setStockInfo(current => ({ ...(current || infoOf(stockItem)), [key]: value }))} disabled={readOnly || saving || busy || preparing} />
-            <fieldset><legend>가격 · 배정</legend><div className="management-fields">
+            <fieldset><legend>{stockLocked ? '가격' : '가격 · 배정'}</legend><div className="management-fields">
               <label className="management-field"><span>판매가 (원)</span><Input required type="number" min="0" max="2147483647" step="1" value={stockPrice} onChange={value => setStockPrice(value)} /></label>
-              <label className="management-field"><span>행사 배정 수량</span><Input required type="number" min="0" max={Math.max(0, Number(stockItem.warehouse) || 0)} step="1" value={stockQty} onChange={value => setStockQty(value)} /></label>
+              {!stockLocked && <label className="management-field"><span>행사 배정 수량</span><Input required type="number" min="0" max={Math.max(0, Number(stockItem.warehouse) || 0)} step="1" value={stockQty} onChange={value => setStockQty(value)} /></label>}
             </div></fieldset></> : <>
             <InventoryProductFields hideCreator={Boolean(artists)} draft={draft} products={products} onChange={change} disabled={registered || uncertain || readOnly || saving || busy || preparing} />
-            <fieldset disabled={registered || uncertain}><legend>가격 · 재고</legend><div className="management-fields">
+            <fieldset disabled={registered || uncertain}><legend>{stockLocked ? '가격' : '가격 · 재고'}</legend><div className="management-fields">
               <label className="management-field"><span>판매가 (원)</span><Input required type="number" min="0" max="2147483647" step="1" value={draft.price} onChange={value => change('price', value)} /></label>
-              <label className="management-field"><span>최초 입고 수량</span><Input required type="number" min="0" max="2147483647" step="1" value={draft.stockQty} onChange={value => change('stockQty', value)} /></label>
+              {!stockLocked && <label className="management-field"><span>최초 입고 수량</span><Input required type="number" min="0" max="2147483647" step="1" value={draft.stockQty} onChange={value => change('stockQty', value)} /></label>}
             </div></fieldset>
-            <p className="management-note">최초 입고 수량을 상품·재고에 기록하고 전량을 현재 행사에 배정합니다. 판매가는 이 행사에만 적용됩니다.</p>
+            {!stockLocked && <p className="management-note">최초 입고 수량을 상품·재고에 기록하고 전량을 현재 행사에 배정합니다. 판매가는 이 행사에만 적용됩니다.</p>}
             </>}
             {imageError && <p role="alert" className="management-note">{imageError}</p>}
             <button data-guide="save" type="submit" className="management-add" disabled={creatorBusy}>{saving || busy ? '저장 중…' : registered ? (image ? '이미지 다시 저장' : '등록 완료') : '상품 등록'}</button>

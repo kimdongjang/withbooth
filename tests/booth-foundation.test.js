@@ -209,7 +209,9 @@ test('operator event creation adds one artist stock; event-day artist edits fail
     const changed=await f.invoke('booths','setArtistAllocation',{...allocate,boothId,version:ownCorrection.body.inventory.version,requestId:crypto.randomUUID()});assert.equal(changed.status,200,JSON.stringify(changed.body));
     assert.equal(changed.body.inventory.totalStock,25);assert.equal(changed.body.inventory.warehouse,15);
     assert.equal((await f.invoke('booths','saveEventStockSchedule',{...schedule,startsOn:'2099-01-01',endsOn:'2099-01-02',requestId:crypto.randomUUID()})).status,200);
-    const outside=await f.invoke('booths','setArtistAllocation',{...allocate,quantity:20,version:changed.body.inventory.version,requestId:crypto.randomUUID()},'b');assert.equal(outside.status,200,JSON.stringify(outside.body));
+    // Event stock belongs to operators and assistants, even outside event days.
+    const byArtist=await f.invoke('booths','setArtistAllocation',{...allocate,quantity:20,version:changed.body.inventory.version,requestId:crypto.randomUUID()},'b');assert.equal(byArtist.status,403,JSON.stringify(byArtist.body));
+    const outside=await f.invoke('booths','setArtistAllocation',{...allocate,boothId,quantity:20,version:changed.body.inventory.version,requestId:crypto.randomUUID()});assert.equal(outside.status,200,JSON.stringify(outside.body));
     assert.equal(outside.body.inventory.warehouse,5);
   }finally{await f.db.close();}
 });
@@ -242,11 +244,12 @@ test('one artist 100/A40/B20: shared event sales, cancel and returns preserve to
     const eventA2=(await f.invoke('pos','createProject',{name:'A 두번째 행사'})).body.project.id;
     for(const projectId of [f.event,eventA2])assert.equal((await f.invoke('booths','saveEventStockSchedule',{boothId,projectId,startsOn:'2099-01-01',endsOn:'2099-01-02',requestId:crypto.randomUUID()})).status,200);
     const move={...base,projectId:eventA2,fromProjectId:f.event,moveQuantity:10,quantity:10,version:3,requestId:crypto.randomUUID()};
-    const moved=await f.invoke('booths','setArtistAllocation',move,'b');assert.equal(moved.status,200,JSON.stringify(moved.body));assert.equal(moved.body.inventory.warehouse,55);assert.equal(moved.body.inventory.totalStock,100);
+    assert.equal((await f.invoke('booths','setArtistAllocation',{...move,requestId:crypto.randomUUID()},'b')).status,403);
+    const moved=await f.invoke('booths','setArtistAllocation',{...move,boothId});assert.equal(moved.status,200,JSON.stringify(moved.body));assert.equal(moved.body.inventory.warehouse,55);assert.equal(moved.body.inventory.totalStock,100);
     assert.equal(moved.body.inventory.allocations.find(a=>a.projectId===f.event).initial,30);
     const archive=await foundation.foundationBackup(f.sql,'a');assert.ok(!JSON.stringify(archive).includes(eventB));
     assert.ok(archive.tables.pos_shared_stock_commands.some(c=>c.id===move.requestId));
-    const failedMove=await f.invoke('booths','setArtistAllocation',{...move,fromProjectId:eventA2,projectId:f.event,quantity:1000,version:5,requestId:crypto.randomUUID()},'b');assert.equal(failedMove.status,400);
+    const failedMove=await f.invoke('booths','setArtistAllocation',{...move,boothId,fromProjectId:eventA2,projectId:f.event,quantity:1000,version:5,requestId:crypto.randomUUID()});assert.equal(failedMove.status,400);
     const unchanged=await f.invoke('booths',null,{},'b',{query:{artists:'stock',ownerId:p.owner_id}});assert.equal(unchanged.body.inventory[0].version,5);assert.equal(unchanged.body.inventory[0].allocations.find(a=>a.projectId===eventA2).initial,10);
     await f.db.query("INSERT INTO pos_event_settlements(admin_id,project_id,closed_at,snapshot) VALUES('a',$1,NOW(),'{\"rows\":[]}'::jsonb)",[eventA2]);
     assert.equal((await f.invoke('booths','setArtistAllocation',{...base,boothId,projectId:eventA2,quantity:15,version:5,requestId:crypto.randomUUID()})).status,409);
@@ -660,7 +663,24 @@ test('ordinary event participants read the event and register products on event 
   const product={ownerId:owner,boothId,projectId:f.event,name:'당일 상품',goodsType:'',price:0,quantity:0};
   const registered=await f.invoke('booths','registerEventArtistProduct',{...product,requestId:crypto.randomUUID()},'b');assert.equal(registered.status,200,JSON.stringify(registered.body));
   assert.equal(registered.body.inventory.allocations[0].projectId,f.event);
+  assert.equal((await f.invoke('booths','registerEventArtistProduct',{...product,name:'수량 상품',quantity:2,requestId:crypto.randomUUID()},'b')).status,403);
   assert.equal((await f.invoke('booths','createArtistStock',{...product,requestId:crypto.randomUUID()},'b')).status,403);
+ }finally{await f.db.close();}
+});
+
+test('event assistants allocate, return and record loss of event stock without booth delegation',async()=>{
+ const f=await fixture();try{
+  const {boothId}=await f.migrate();
+  const made=await f.invoke('booths','registerEventArtistProduct',{projectId:f.event,boothId,artistName:'보조 대상 제작자',name:'보조 상품',price:0,quantity:30,goodsType:'키링',requestId:crypto.randomUUID()});assert.equal(made.status,200,JSON.stringify(made.body));
+  let item=made.body.inventory;const ownerId=item.ownerId;
+  const home=await f.invoke('booths','createArtistProfile',{name:'부관리자'},'b');
+  assert.equal((await f.invoke('booths','addEventArtist',{boothId,projectId:f.event,profileId:home.body.profiles[0].id,role:'assistant',requestId:crypto.randomUUID()})).status,200);
+  const view=await f.invoke('booths',null,{},'b',{query:{artists:'stock',ownerId,boothId,projectId:f.event}});assert.equal(view.status,200,JSON.stringify(view.body));
+  assert.equal(view.body.quantityEditable,true);assert.equal(view.body.events.find(e=>e.id===f.event).operator,true);
+  const returned=await f.invoke('booths','setArtistAllocation',{ownerId,boothId,id:item.id,version:item.version,projectId:f.event,quantity:20,requestId:crypto.randomUUID()},'b');assert.equal(returned.status,200,JSON.stringify(returned.body));item=returned.body.inventory;
+  assert.equal(item.warehouse,10);
+  const loss=await f.invoke('booths','recordArtistStockLoss',{ownerId,boothId,id:item.id,projectId:f.event,version:item.version,quantity:1,reason:'loss',requestId:crypto.randomUUID()},'b');assert.equal(loss.status,200,JSON.stringify(loss.body));
+  assert.equal(loss.body.inventory.allocations.find(a=>a.projectId===f.event).remaining,19);
  }finally{await f.db.close();}
 });
 
@@ -885,7 +905,7 @@ test('event product creator mapping changes only future attribution, supports un
 });
 
 
-test('stock delegation preference immediately blocks operator quantities but preserves reads, sales, cancellations and 30/25 allocation floors',async()=>{
+test('creator stock preference no longer blocks operator quantities; reads, sales, cancellations and the 30 allocation floor are kept',async()=>{
  const f=await fixture();try{
   const {boothId}=await f.migrate();
   const p=(await f.sql`SELECT id,id AS owner_id FROM pos_stock_owners ORDER BY id LIMIT 1`).rows[0];
@@ -896,7 +916,7 @@ test('stock delegation preference immediately blocks operator quantities but pre
   let item=created.body.inventory;
   const stock=async()=>{const r=await f.invoke('booths',null,{},'a',{query:{artists:'stock',ownerId:p.owner_id,boothId}});assert.equal(r.status,200,JSON.stringify(r.body));return r.body;};
   const adjust=(total,reason='correction',actor='a')=>f.invoke('booths','adjustArtistStock',{ownerId:p.owner_id,boothId,id:item.id,version:item.version,totalStock:total,reason,requestId:crypto.randomUUID()},actor);
-  assert.equal((await adjust(31,'receipt')).status,403);
+  const early=await adjust(31,'receipt');assert.equal(early.status,200,JSON.stringify(early.body));item=early.body.inventory;
   const preference=async allowed=>{const r=await f.invoke('booths','saveStockPreference',{allowOperatorStock:allowed,requestId:crypto.randomUUID()},'b');assert.equal(r.status,200,JSON.stringify(r.body));};
   await preference(true);
   const e2=(await f.invoke('pos','createProject',{name:'B 행사'})).body.project.id;
@@ -909,22 +929,21 @@ test('stock delegation preference immediately blocks operator quantities but pre
   await f.sql`UPDATE pos_projects SET archived_at=NOW() WHERE id=${f.event}`;
   item=(await stock()).inventory.find(row=>row.id===item.id);assert.equal(item.minimumTotalStock,30);
   assert.equal((await adjust(29)).status,400);const thirty=await adjust(30);assert.equal(thirty.status,200);item=thirty.body.inventory;
-  await preference(false);const read=await stock();assert.equal(read.quantityEditable,false);
-  assert.equal((await adjust(40,'receipt')).status,403);assert.equal((await allocation(e2,15)).status,403);
-  assert.equal((await f.invoke('booths','recordArtistStockLoss',{ownerId:p.owner_id,boothId,id:item.id,projectId:e2,version:item.version,quantity:1,reason:'loss',requestId:crypto.randomUUID()})).status,403);
+  await preference(false);const read=await stock();assert.equal(read.quantityEditable,true);
+  const raised=await adjust(40,'receipt');assert.equal(raised.status,200,JSON.stringify(raised.body));item=raised.body.inventory;
+  assert.equal((await allocation(e2,15)).status,200);
+  const loss=await f.invoke('booths','recordArtistStockLoss',{ownerId:p.owner_id,boothId,id:item.id,projectId:e2,version:item.version,quantity:1,reason:'loss',requestId:crypto.randomUUID()});assert.equal(loss.status,200,JSON.stringify(loss.body));item=loss.body.inventory;
   const priceOnly=await f.invoke('booths','saveEventArtistProduct',{ownerId:p.owner_id,boothId,id:item.id,version:item.version,projectId:e2,product:{...item,price:100},requestId:crypto.randomUUID()});
   assert.equal(priceOnly.status,200,JSON.stringify(priceOnly.body));item=priceOnly.body.inventory;
   assert.equal((await sell(e2,productB,1,'preference-off-sale')).status,200);
   const sale=(await f.sql`SELECT id FROM pos_sales WHERE project_id=${e2}`).rows[0];
   assert.equal((await f.invoke('pos','voidSale',{},'a',{body:{action:'voidSale',projectId:e2,boothId,protocolVersion:2,actorId:'a',payload:{id:sale.id,localOrderId:'preference-off-void'}}})).status,200);
-  item=(await stock()).inventory.find(row=>row.id===item.id);assert.equal((await adjust(32,'receipt','b')).status,200);
-  await preference(true);item=(await stock()).inventory.find(row=>row.id===item.id);
-  assert.equal((await allocation(e2,15)).status,200);assert.equal(item.minimumTotalStock,25);
-  const reduced=await adjust(25);assert.equal(reduced.status,200,JSON.stringify(reduced.body));assert.equal(reduced.body.inventory.totalStock,25);
+  item=(await stock()).inventory.find(row=>row.id===item.id);
+  const reduced=await adjust(item.minimumTotalStock);assert.equal(reduced.status,200,JSON.stringify(reduced.body));assert.equal(reduced.body.inventory.totalStock,item.minimumTotalStock);
  }finally{await f.db.close();}
 });
 
-test('search registration requires artist participation confirmation before operator stock writes and keeps existing opt-out on account linking',async()=>{
+test('operator stock writes do not wait for artist participation confirmation; confirmation and preference APIs still answer',async()=>{
  const f=await fixture();try{
   const {boothId}=await f.migrate();
   const home=await f.invoke('booths','createArtistProfile',{name:'확인 작가'},'b');const profile=home.body.profiles[0];
@@ -932,11 +951,10 @@ test('search registration requires artist participation confirmation before oper
   const added=await f.invoke('booths','addEventArtist',{boothId,projectId:f.event,profileId:profile.id,role:'assistant',requestId:crypto.randomUUID()});assert.equal(added.status,200);
   const item=created.body.inventory;
   const adjust=()=>f.invoke('booths','adjustArtistStock',{ownerId:profile.owner_id,boothId,id:item.id,version:item.version,totalStock:11,reason:'receipt',requestId:crypto.randomUUID()});
-  assert.equal((await adjust()).status,403);
+  assert.equal((await adjust()).status,200);
   const confirm={ownerId:profile.owner_id,boothId,requestId:crypto.randomUUID()};
   assert.equal((await f.invoke('booths','confirmStockParticipation',confirm,'a')).status,403);
   assert.equal((await f.invoke('booths','confirmStockParticipation',confirm,'b')).status,200);
-  assert.equal((await adjust()).status,200);
   const off={allowOperatorStock:false,requestId:crypto.randomUUID()};assert.equal((await f.invoke('booths','saveStockPreference',off,'b')).status,200);
   assert.equal((await f.invoke('booths','saveStockPreference',off,'b')).status,200);
   assert.equal((await f.invoke('booths','saveStockPreference',{...off,allowOperatorStock:true},'b')).status,409);
@@ -1044,8 +1062,8 @@ test('inventory allocation plan atomically returns ended stock, adjusts total an
   const profile=(await f.sql`SELECT id FROM pos_stock_owners WHERE id=${ownerId}`).rows[0];
   assert.equal((await f.invoke('booths','linkEventArtistAccount',{projectId:f.event,boothId,profileId:profile.id,targetUserId:'b',requestId:crypto.randomUUID()})).status,200);
   assert.equal((await f.invoke('booths','saveStockPreference',{allowOperatorStock:false,requestId:crypto.randomUUID()},'b')).status,200);
-  assert.equal((await f.invoke('booths','saveArtistStockPlan',{ownerId,boothId,id:item.id,version:retried.body.inventory.version,totalStock:36,allocations:[],requestId:crypto.randomUUID()})).status,403);
-  assert.equal((await read()).inventory[0].totalStock,35);
+  assert.equal((await f.invoke('booths','saveArtistStockPlan',{ownerId,boothId,id:item.id,version:retried.body.inventory.version,totalStock:36,allocations:[],requestId:crypto.randomUUID()})).status,200);
+  assert.equal((await read()).inventory[0].totalStock,36);
 
  }finally{await f.db.close();}
 });

@@ -47,6 +47,6 @@ test('artist linking UI previews first, requires consent and clears it when the 
   assert.equal(button().props.disabled,true);
   h.render().find(n=>n.type==='input'&&n.props.type==='checkbox').props.onChange({target:{checked:true}});
   await button().props.onClick();
-  assert.deepEqual(h.calls.at(-1),{action:'acceptArtistInvitation',payload:{token:'b'.repeat(64),acceptSharedStock:true,allowOperatorStock:true}});
+  assert.deepEqual(h.calls.at(-1),{action:'acceptArtistInvitation',payload:{token:'b'.repeat(64),acceptSharedStock:true}});
   assert.equal(input().props.value,'');assert.equal(button(),undefined);
 });

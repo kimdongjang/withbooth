@@ -13,7 +13,6 @@ export default function ArtistAccount({request,onCompatibility,mode='all'}) {
   const [code,setCode]=useState('');
   const [preview,setPreview]=useState(null);
   const [consent,setConsent]=useState(false);
-  const [allowOperatorStock,setAllowOperatorStock]=useState(true);
   const [issued,setIssued]=useState(null);
   const [busy,setBusy]=useState(false);
   const [error,setError]=useState('');
@@ -45,15 +44,14 @@ export default function ArtistAccount({request,onCompatibility,mode='all'}) {
           <label>부스명<Input required maxLength={80} value={boothName} onChange={setBoothName} disabled={busy}/></label>
           <button className="management-add" disabled={busy}>부스 만들기</button>
         </form>}
-        <form className="account-form" onSubmit={e=>{e.preventDefault();run(async()=>{setPreview(null);setConsent(false);const data=await post('previewArtistInvitation',{token:code.trim()});setPreview(data.invitation);setAllowOperatorStock(data.allowOperatorStock!==false);});}}>
+        <form className="account-form" onSubmit={e=>{e.preventDefault();run(async()=>{setPreview(null);setConsent(false);const data=await post('previewArtistInvitation',{token:code.trim()});setPreview(data.invitation);});}}>
           <label>제작자 초대 코드<Input required value={code} maxLength={64} onChange={value=>{setCode(value);setPreview(null);setConsent(false);}} disabled={busy} autoComplete="off"/></label>
           <button className="management-add" disabled={busy}>연결 내용 확인</button>
         </form>
         {preview && <div className="account-form">
           <dl className="account-details"><div><dt>부스</dt><dd>{preview.boothName}</dd></div><div><dt>제작자</dt><dd>{preview.artistName}</dd></div><div><dt>초대 만료</dt><dd>{new Date(preview.expiresAt).toLocaleString('ko-KR')}</dd></div></dl>
           {!preview.accepted && <><label><input type="checkbox" checked={consent} onChange={e=>setConsent(e.target.checked)} disabled={busy}/>이 제작자 프로필을 내 계정에 연결하는 데 동의합니다.</label>
-            <label className="stock-permission-checkbox"><input type="checkbox" checked={allowOperatorStock} disabled={busy} onChange={e=>setAllowOperatorStock(e.target.checked)}/>행사 운영자의 재고관리 허용</label>
-            <button type="button" className="management-add" disabled={busy || !consent} onClick={()=>run(async()=>{await post('acceptArtistInvitation',{token:code.trim(),acceptSharedStock:consent,allowOperatorStock});setCode('');setPreview(null);setConsent(false);await reload();})}>제작자 연결 수락</button></>}
+            <button type="button" className="management-add" disabled={busy || !consent} onClick={()=>run(async()=>{await post('acceptArtistInvitation',{token:code.trim(),acceptSharedStock:consent});setCode('');setPreview(null);setConsent(false);await reload();})}>제작자 연결 수락</button></>}
         </div>}
         {mode!=='profile'&&operators.length>0 && <section>
           <h3>참여 제작자 초대</h3>
