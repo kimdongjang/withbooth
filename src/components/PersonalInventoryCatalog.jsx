@@ -12,7 +12,8 @@ export default function PersonalInventoryCatalog({items,events,detailId,navigate
  useEffect(()=>{if(popup)dialog.current?.showModal();else dialog.current?.close();},[popup]);
  const changeSearch=next=>{setSearch(next);setPage(1);};
  const eventName=id=>events.find(event=>event.id===id)?.name||'삭제되었거나 접근할 수 없는 행사';
- const rows=items.map(item=>({...item,remainingStock:item.remaining,allocations:item.allocations.map(row=>({...row,project_id:row.projectId}))}));
+ const rows=items.map(item=>({...item,remainingStock:item.remaining,allocations:item.allocations.filter(row=>row.active!==false).map(row=>({...row,project_id:row.projectId}))}));
+ // 행사에서 제거한 상품(비활성)의 배정은 재고 수량에는 남지만 '행사 등록'에는 세지 않는다.
  const matchesView=item=>view==='unassigned'?item.warehouse>0:view==='unregistered'?item.allocations.length===0:view==='registered'?item.allocations.length>0:view==='empty'?!(item.remaining>0):true;
  const filtered=filterInventory(rows,search).filter(matchesView).sort((a,b)=>sort.direction*(sort.key==='remainingStock'?a.remainingStock-b.remainingStock:String(a[sort.key]||'').localeCompare(String(b[sort.key]||''),'ko')));
  const pageCount=Math.max(1,Math.ceil(filtered.length/10)),currentPage=Math.min(page,pageCount);
