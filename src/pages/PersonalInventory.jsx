@@ -18,7 +18,8 @@ import {useEventReadRefresh} from '../hooks/useEventReadRefresh';
 
 function ProductEditor({item,busy,onSave,onImage,onRemove}) {
  const [draft,setDraft]=useState(item),[imageError,setImageError]=useState('');
- const clear=useUnsavedChanges(JSON.stringify(draft)!==JSON.stringify(item));
+ const editable=row=>['name','vtuberName','goodsType','genre'].map(key=>row[key]??'');
+ const clear=useUnsavedChanges(JSON.stringify(editable(draft))!==JSON.stringify(editable(item)));
  return <article className="management-product"><div className="management-product-header inventory-detail-header"><div className="inventory-detail-identity"><h3>{item.name}</h3></div><div className="inventory-detail-actions"><button type="submit" form={`product-${item.id}`} className="management-add" disabled={busy}>수정</button><button type="button" className="inventory-delete-button" disabled={busy} onClick={onRemove}>상품 삭제</button></div></div><div className="management-product-body">
   <div className="management-image"><ProductImage imageUrl={item.imageUrl} name={item.name}/><label className="management-upload product-image-upload"><span>{item.imageUrl?'이미지 수정':'이미지 등록'}</span><input aria-label="상품 이미지 등록 또는 수정" type="file" accept="image/png,image/jpeg,image/webp" disabled={busy} onChange={e=>{const file=e.target.files?.[0];e.target.value='';if(file){setImageError('');Promise.resolve(onImage(file)).catch(err=>setImageError(err?.message||'이미지를 저장하지 못했습니다.'));}}}/></label>{imageError&&<p role="alert" className="inventory-error">{imageError}</p>}</div>
   <form id={`product-${item.id}`} className="management-details" onSubmit={async e=>{e.preventDefault();try{await onSave(draft);clear();}catch{}}}><InventoryProductFields draft={draft} hideCreator products={[]} onChange={(key,value)=>setDraft(current=>({...current,[key]:value}))} disabled={busy}/></form>

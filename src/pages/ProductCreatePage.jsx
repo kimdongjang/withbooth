@@ -36,7 +36,13 @@ export default function ProductCreatePage({ projectId, onImageChange, readOnly, 
   const [stockPrice, setStockPrice] = useState('0');
   const fixedOwnerId = fixedCreator?.ownerId;
   useEffect(() => {
-    if (fixedOwnerId) setDraft(current => current.ownerId === fixedOwnerId ? current : { ...current, ownerId: fixedOwnerId, artistName: '', creatorName: fixedCreator.label || '' });
+    if (!fixedOwnerId) return;
+    setDraft(current => {
+      if (current.ownerId === fixedOwnerId) return current;
+      const next = { ...current, ownerId: fixedOwnerId, artistName: '', creatorName: fixedCreator.label || '' };
+      if (JSON.stringify(current) === original.current) original.current = JSON.stringify(next);
+      return next;
+    });
   }, [fixedOwnerId]); // eslint-disable-line react-hooks/exhaustive-deps
   // The selected creator's stock is read directly, so creators outside the event catalog (e.g. the operator) are included.
   const [stockLoad, setStockLoad] = useState({ ownerId: '', items: [], error: '' });
