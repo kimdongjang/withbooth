@@ -10,7 +10,9 @@ export async function stockDelegationAllowed(sql,userId,ownerId,boothId,allowEnd
  if((await sql`SELECT owner_id FROM pos_owner_members WHERE owner_id=${ownerId} AND user_id=${userId}`).rows.length)return true;
  if(!boothId)return false;
  const relation=(await sql`SELECT a.status,a.stock_management_confirmed FROM pos_booth_artists a JOIN pos_booth_members m ON m.booth_id=a.booth_id AND m.user_id=${userId} AND m.status='active' AND m.role IN ('owner','manager') WHERE a.booth_id=${boothId} AND a.owner_id=${ownerId}`).rows[0];
- return Boolean(relation&&(allowEnding?['active','proxy','ending']:['active','proxy']).includes(relation.status)&&(!profile.linked_user_id||profile.allow_operator_stock===true&&relation.stock_management_confirmed));
+ // Booth operators always manage participating creators' stock; the creator's
+ // allow_operator_stock preference and participation confirmation are no longer required.
+ return Boolean(relation&&(allowEnding?['active','proxy','ending']:['active','proxy']).includes(relation.status));
 }
 export async function assertStockDelegation(sql,userId,ownerId,boothId,allowEnding=false){if(!await stockDelegationAllowed(sql,userId,ownerId,boothId,allowEnding))fail('제작자의 재고관리 허용과 부스 참여 확인이 필요합니다.');}
 export async function stockPreferenceView(sql,userId){

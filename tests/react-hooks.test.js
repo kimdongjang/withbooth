@@ -11,6 +11,20 @@ test('unsaved changes hook renders with the same React runtime as React DOM',asy
  assert.equal(renderToString(React.createElement(Screen)),'<span>ready</span>');
 });
 
+test('unsaved changes ask once per dirty period and skip navigation-free guards',async()=>{
+ const slots=[];let cursor=0,asked=0,answer=true;
+ const react={useRef:initial=>{const index=cursor++;return slots[index]||=({current:initial});},useEffect:fn=>{const index=cursor++;if(!slots[index]){slots[index]=true;fn();}}};
+ const context=vm.createContext({window:{addEventListener(){},removeEventListener(){}}});const module=new vm.SourceTextModule(await readFile(new URL('../src/hooks/useUnsavedChanges.js',import.meta.url),'utf8'),{context});
+ await module.link(name=>{const exports=name==='react'?react:{confirmAction:async()=>{asked++;return answer;}};return new vm.SyntheticModule(Object.keys(exports),function(){for(const[k,v]of Object.entries(exports))this.setExport(k,v);},{context});});await module.evaluate();
+ const {useUnsavedChanges,allowNavigation}=module.namespace;
+ const render=(form,cart)=>{cursor=0;useUnsavedChanges(form);useUnsavedChanges(cart,{navigation:false});};
+ render(false,true);assert.equal(await allowNavigation(),true);assert.equal(asked,0);
+ render(true,true);answer=false;assert.equal(await allowNavigation(),false);assert.equal(asked,1);
+ answer=true;assert.equal(await allowNavigation(),true);assert.equal(asked,2);
+ render(true,true);assert.equal(await allowNavigation(),true);assert.equal(asked,2);
+ render(false,true);render(true,true);assert.equal(await allowNavigation(),true);assert.equal(asked,3);
+});
+
 test('event read subscriptions survive edit mode and suppress draft refresh until editing ends',async()=>{
  const slots=[],effects=[];let cursor=0,subscriptions=0,notify,cleanup;
  const react={

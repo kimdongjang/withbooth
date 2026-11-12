@@ -185,6 +185,22 @@ test('creator product picker lists zero-stock products and registers them with q
  assert.equal(JSON.stringify(allocated),JSON.stringify([['empty',{quantity:0,price:2000}]]));
 });
 
+test('participants without stock rights register products and pick stock with no quantity input and quantity 0',async()=>{
+ const h=await harness('pages/ProductCreatePage.jsx');const allocated=[],registered=[];
+ const loadCreatorStock=async()=>[{id:'key',ownerId:'me',name:'키링',price:3000,warehouse:5,version:1,allocations:[]}];
+ const props={projectId:'event',artists:[{ownerId:'me',label:'나',owned:true}],fixedCreator:{ownerId:'me',label:'나'},stockLocked:true,loadCreatorStock,products:[],onBack(){},registerProduct:async product=>registered.push(product),onAllocateStock:async(item,values)=>allocated.push([item.id,values])};
+ h.render(props);await h.flush();h.render(props);await h.flush();let tree=h.render(props);
+ assert.equal(tree.some(n=>n.type==='span'&&n.props.children==='최초 입고 수량'),false);
+ tree.find(n=>n.type==='InventoryProductFields').props.onChange('name','새 굿즈');tree=h.render(props);
+ await tree.find(n=>n.type==='form').props.onSubmit({preventDefault(){}});
+ assert.equal(registered.length,1);assert.equal(registered[0].stockQty,0);
+ const h2=await harness('pages/ProductCreatePage.jsx');h2.render(props);await h2.flush();h2.render(props);await h2.flush();tree=h2.render(props);
+ tree.find(n=>n.props['aria-label']==='제작자 재고에서 상품 선택').props.onChange({target:{value:'key'}});tree=h2.render(props);
+ assert.equal(tree.some(n=>n.type==='span'&&n.props.children==='행사 배정 수량'),false);
+ await tree.find(n=>n.type==='form').props.onSubmit({preventDefault(){}});
+ assert.equal(JSON.stringify(allocated),JSON.stringify([['key',{quantity:0,price:3000}]]));
+});
+
 test('picked creator product shows editable name, character, type and series and saves edits before allocation',async()=>{
  const h=await harness('pages/ProductCreatePage.jsx');const calls=[];
  const loadCreatorStock=async()=>[{id:'key',ownerId:'me',name:'키링',vtuberName:'토끼',goodsType:'키링',genre:'시리즈A',price:3000,warehouse:2,version:4,allocations:[]}];
@@ -253,18 +269,6 @@ test('event product detail labels one linked creator and supports search, replac
  tree.find(n=>n.type==='CreatorField').props.onChange({ownerId:'b'});tree=h.render(props);
  await tree.find(n=>n.type==='button'&&n.props.children==='제작자 저장').props.onClick();assert.deepEqual(mapped,['b']);
  tree=h.render(props);await tree.find(n=>n.type==='button'&&n.props.children==='제작자 연결 삭제').props.onClick();assert.deepEqual(mapped,['b',null]);
-});
-
-test('stock management setting saves opt-out and confirms a searched participation separately',async()=>{
- const h=await harness('components/StockManagementSettings.jsx'),calls=[];
- let data={allowOperatorStock:true,participations:[{booth_id:'b',owner_id:'o',booth_name:'Booth',display_name:'Artist',stock_management_confirmed:false}]};
- const request=async(url,options)=>{if(!options)return data;const command=JSON.parse(options.body);calls.push(command);if(command.action==='saveStockPreference')data={...data,allowOperatorStock:command.payload.allowOperatorStock};else data={...data,participations:data.participations.map(row=>({...row,stock_management_confirmed:true}))};return data;};
- const props={request};h.render(props);await h.flush();let tree=h.render(props);
- assert.equal(tree.find(n=>n.type==='input').props.checked,true);
- await tree.find(n=>n.type==='input').props.onChange({target:{checked:false}});tree=h.render(props);
- assert.equal(tree.find(n=>n.type==='input').props.checked,false);assert.equal(calls[0].action,'saveStockPreference');assert.equal(calls[0].payload.allowOperatorStock,false);assert.ok(calls[0].payload.requestId);
- await tree.find(n=>n.type==='button'&&n.props.children==='참여 수락').props.onClick();tree=h.render(props);
- assert.equal(calls[1].action,'confirmStockParticipation');assert.equal(calls[1].payload.ownerId,'o');assert.equal(tree.some(n=>n.props.children==='참여 수락'),false);
 });
 
 test('existing stock picker reuses original identity and allocation while excluding read-only quantity submission',async()=>{

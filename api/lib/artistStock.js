@@ -47,6 +47,7 @@ async function ownerAccess(sql,userId,ownerId,boothId) {
 async function lockScope(sql,userId,ownerId,boothId,item,projectIds=[],allowEnding=false,quantityWrite=true) {
   if(item?.product?.removedAt)fail('제거된 재고는 변경할 수 없습니다.');
   const {owner,own}=await ownerAccess(sql,userId,ownerId,boothId);
+  let eventStaff=false;
   const booth=boothId?(await sql`SELECT * FROM pos_booths WHERE id=${boothId}`).rows[0]:null;
   const events=projectIds.length?(await sql`SELECT admin_id FROM pos_projects WHERE id=ANY(${projectIds}::text[])`).rows:[];
   const admins=[userId,item?.admin_id,booth?.legacy_admin_id,owner.linked_user_id,...events.map(e=>e.admin_id)].filter(Boolean);
@@ -59,21 +60,27 @@ async function lockScope(sql,userId,ownerId,boothId,item,projectIds=[],allowEndi
       if(!relation||!['active','proxy',...(allowEnding?['ending','ended']:[])].includes(relation.status))fail('참여 제작자의 재고가 아닙니다.',403);
     }
   }
-  else if(allowEnding) {
+  // Event-scoped writes (including returns) are checked against the event, so assistants qualify.
+  else if(projectIds.length&&(await sql`SELECT to_regclass('pos_event_staff') AS name`).rows[0]?.name) {
+    for(const projectId of projectIds)await authorizeEvent(sql,userId,projectId,'configure',boothId);
+    const statuses=allowEnding?['active','proxy','ending']:['active','proxy'];
+    if(!(await sql`SELECT owner_id FROM pos_booth_artists WHERE owner_id=${ownerId} AND booth_id=${boothId} AND status=ANY(${statuses}::text[]) FOR UPDATE`).rows.length)fail('참여 제작자의 재고가 아닙니다.',403);
+    eventStaff=true;
+  } else if(allowEnding) {
     await authorizeBooth(sql,userId,boothId,'manage');
     if(!(await sql`SELECT owner_id FROM pos_booth_artists WHERE booth_id=${boothId} AND owner_id=${ownerId} AND status IN ('active','proxy','ending') FOR UPDATE`).rows.length)fail('참여 제작자의 재고가 아닙니다.',403);
-  } else if(projectIds.length&&(await sql`SELECT to_regclass('pos_event_staff') AS name`).rows[0]?.name) {
-    for(const projectId of projectIds)await authorizeEvent(sql,userId,projectId,'configure',boothId);
-    if(!(await sql`SELECT owner_id FROM pos_booth_artists WHERE owner_id=${ownerId} AND booth_id=${boothId} AND status IN ('active','proxy')`).rows.length)fail('참여 제작자의 재고가 아닙니다.',403);
   } else await authorizeOwnerStock(sql,userId,ownerId,boothId);
-  if(quantityWrite&&!own)await assertStockDelegation(sql,userId,ownerId,boothId,allowEnding);
+  // Event operators and assistants (configure) manage that event's stock without booth delegation.
+  if(quantityWrite&&!own&&!eventStaff)await assertStockDelegation(sql,userId,ownerId,boothId,allowEnding);
   if(projectIds.length) await sql`SELECT id FROM pos_projects WHERE id=ANY(${projectIds}::text[]) ORDER BY id FOR UPDATE`;
   await sql`SELECT id FROM pos_stock_owners WHERE id=${ownerId} FOR UPDATE`;
   if(item)await sql`SELECT id FROM pos_inventory WHERE admin_id=${item.admin_id} AND id=${item.id} FOR UPDATE`;
   return {owner,own,booth};
 }
 
-async function eventAccess(sql,userId,ownerId,projectId,boothId,{returning=false,registering=false}={}) {
+// stockChange: the call changes event stock (allocation, return, loss). Only event
+// operators and assistants (canConfigure) may change event stock; creators may not.
+async function eventAccess(sql,userId,ownerId,projectId,boothId,{returning=false,registering=false,stockChange=true}={}) {
   await sql`SELECT b.id FROM pos_booths b JOIN pos_event_booths e ON e.booth_id=b.id WHERE e.project_id=${projectId} FOR UPDATE OF b`;
   await sql`SELECT a.owner_id FROM pos_booth_artists a JOIN pos_event_booths e ON e.booth_id=a.booth_id WHERE e.project_id=${projectId} AND a.owner_id=${ownerId} FOR UPDATE OF a`;
   await sql`SELECT project_id FROM pos_event_stock_policy WHERE project_id=${projectId} FOR UPDATE`;
@@ -97,7 +104,8 @@ async function eventAccess(sql,userId,ownerId,projectId,boothId,{returning=false
   if(!operator) {
     const own=(await sql`SELECT owner_id FROM pos_owner_members WHERE owner_id=${ownerId} AND user_id=${userId}`).rows.length;
     if(!own)fail('행사 재고 관리 권한이 없습니다.',403);
-    // A new product adds stock without touching allocated stock, so participants may register it on event days.
+    if(stockChange&&!registering)fail('행사 재고는 운영자·부관리자만 변경할 수 있습니다.',403);
+    // A new product (registered with no stock) may be added by participants on event days.
     if(!registering&&(!row.starts_on||row.event_day))fail('행사 기간 또는 일정 미설정 행사에서는 운영자만 재고를 관리할 수 있습니다.',403);
   }
   if(!['active','proxy',...(returning?['ending']:[])].includes(row.participation))fail('참여 제작자의 재고가 아닙니다.',403);
@@ -164,12 +172,12 @@ export async function artistStockView(sql,userId,{ownerId,boothId,projectId}) {
   }
   let inventory=await Promise.all(items.map(item=>projection(sql,item,ownerId,boothId)));
   if(projectId)inventory=inventory.map(item=>({...item,allocations:item.allocations.filter(a=>a.projectId===projectId)}));
-  const quantityEditable=await stockDelegationAllowed(sql,userId,ownerId,boothId);
-  let quantityReadOnlyReason=null;
-  if(!quantityEditable){const preference=(await sql`SELECT u.allow_operator_stock FROM pos_stock_owners o LEFT JOIN pos_admins u ON u.id=o.linked_user_id WHERE o.id=${ownerId}`).rows[0];quantityReadOnlyReason=preference?.allow_operator_stock===false?'제작자가 재고 수정을 허용하지 않았어요 (조회만 가능)':'재고 수정 권한이 없어 조회만 가능합니다.';}
+  // Event operators and assistants of the requested event manage its stock too.
+  const quantityEditable=await stockDelegationAllowed(sql,userId,ownerId,boothId)||Boolean(projectId&&visibleEvents.some(e=>e.id===projectId&&e.operator));
+  const quantityReadOnlyReason=quantityEditable?null:'재고 수정 권한이 없어 조회만 가능합니다.';
   inventory=inventory.map(item=>({...item,quantityEditable,quantityReadOnlyReason}));
   return {ownerId,quantityEditable,participations,inventory,history:projectId?[]:history,
-    events:visibleEvents.filter(e=>!projectId||e.id===projectId).map(e=>({...e,canReturn:Boolean(quantityEditable&&!e.closed_at&&(e.operator||e.starts_on&&!e.event_day)),detailEditable:Boolean(!e.archived_at&&!e.closed_at&&(e.operator||e.starts_on&&!e.event_day)),artistEditable:Boolean(quantityEditable&&e.starts_on&&!e.event_day&&!e.archived_at&&!e.closed_at),operator:Boolean(e.operator&&quantityEditable&&!e.archived_at&&!e.closed_at)}))};
+    events:visibleEvents.filter(e=>!projectId||e.id===projectId).map(e=>({...e,canReturn:Boolean(e.operator&&!e.closed_at),detailEditable:Boolean(!e.archived_at&&!e.closed_at&&(e.operator||e.starts_on&&!e.event_day)),artistEditable:false,operator:Boolean(e.operator&&!e.archived_at&&!e.closed_at)}))};
 }
 
 async function bindIdentity(sql,owner,boothId,projectId,productId) {
@@ -190,7 +198,8 @@ async function setAllocation(sql,userId,owner,item,projectId,quantity,boothId,pr
   const source=await sharedInventorySource(sql,item),balance=inventoryBalance(source,item);
   const previous=balance.allocations.find(a=>a.projectId===projectId);
   const delta=quantity-(previous?.initial||0);
-  const event=await eventAccess(sql,userId,owner.id,projectId,boothId,{returning:delta<0,registering});
+  // Linking stock to the event with no quantity registers the product without changing event stock.
+  const event=await eventAccess(sql,userId,owner.id,projectId,boothId,{returning:delta<0,registering:registering||!previous&&quantity===0,stockChange:delta!==0});
   if(event.participation==='ending'&&price!=null&&previous&&price!==Number(source.products.find(p=>p.project_id===projectId&&p.id===previous.productId)?.price))fail('참여 종료 정리 중에는 행사 가격을 변경할 수 없습니다.');
   if(item.product.removedAt)fail('제거된 재고입니다.');
   if(item.stock<delta||previous&&previous.remaining+delta<0)fail('미배정 재고 또는 행사 잔량이 부족합니다.',400);
@@ -219,7 +228,7 @@ export async function createArtistStock(sql,userId,payload,{registering=false,in
   const {owner}=await lockScope(sql,userId,ownerId,boothId,{admin_id:sourceAdmin,id:''},projectId?[projectId]:[]);
   const prior=await replay(sql,userId,'createArtistStock',payload);if(prior.result)return prior.result;
   if(typeof name!=='string'||!name.trim()||name.trim().length>100||!integer(price)||!integer(quantity))fail('상품명·정수 가격·수량을 확인해주세요.',400);
-  if(projectId)await eventAccess(sql,userId,ownerId,projectId,boothId,{registering});
+  if(projectId)await eventAccess(sql,userId,ownerId,projectId,boothId,{registering,stockChange:quantity!==0});
   const item=(await sql`INSERT INTO pos_inventory(admin_id,id,product,stock,total_received)
     VALUES(${sourceAdmin},${inventoryId||randomUUID()},${JSON.stringify({name:name.trim(),goodsType:String(payload.goodsType??name).slice(0,100),vtuberName:String(payload.vtuberName||'').slice(0,100),genre:String(payload.genre||'').slice(0,100),cost:integer(payload.cost)?payload.cost:0,price,creatorName:owner.display_name,createdAt:new Date().toISOString()})}::jsonb,${quantity},${quantity}) RETURNING *`).rows[0];
   await sql`INSERT INTO pos_inventory_owners(admin_id,inventory_id,owner_id) VALUES(${sourceAdmin},${item.id},${ownerId})`;
@@ -258,7 +267,8 @@ export async function setArtistAllocation(sql,userId,payload) {
 export async function adjustArtistStock(sql,userId,payload) {
   const {ownerId,boothId,id,version,totalStock,reason='correction'}=payload;
   let item=await itemFor(sql,ownerId,id);
-  await lockScope(sql,userId,ownerId,boothId,item);
+  // In an event context the event's operators and assistants may change the total too.
+  const {own}=await lockScope(sql,userId,ownerId,boothId,item,payload.projectId?[payload.projectId]:[]);
   const prior=await replay(sql,userId,'adjustArtistStock',payload);if(prior.result)return prior.result;
   item=await itemFor(sql,ownerId,id);
   if(!integer(version)||!integer(totalStock)||!['receipt','correction'].includes(reason))fail('총재고와 사유를 확인해주세요.',400);
@@ -270,7 +280,7 @@ export async function adjustArtistStock(sql,userId,payload) {
   await activate(sql,item);
   await sql`UPDATE pos_inventory SET stock=${totalStock-balance.unavailable},total_received=${received},version=version+1 WHERE admin_id=${item.admin_id} AND id=${item.id}`;
   if(delta)await sql`INSERT INTO pos_inventory_adjustments(admin_id,inventory_id,id,delta,reason) VALUES(${item.admin_id},${item.id},${payload.requestId},${delta},${reason})`;
-  if(payload.projectId)await authorizeEvent(sql,userId,payload.projectId,'manage',boothId);
+  if(payload.projectId&&!own)await authorizeEvent(sql,userId,payload.projectId,'configure',boothId);
   return receipt(sql,userId,'adjustArtistStock',payload,prior.fingerprint,{inventory:await projection(sql,await itemFor(sql,ownerId,id),ownerId,boothId),change:{before:balance.totalStock,after:totalStock,delta,reason}});
 }
 
@@ -431,6 +441,7 @@ export async function registerEventArtistProduct(sql,userId,payload) {
  const access=await authorizeEvent(sql,userId,projectId,'read',boothId);
  const unassigned=artistName===undefined&&!payload.ownerId;
  if(!access.permissions.canConfigure&&(unassigned||artistName!==undefined||!access.permissions.ownerIds.includes(payload.ownerId)))fail('이 행사의 상품 등록 권한이 없습니다.',403);
+ if(!access.permissions.canConfigure&&Number(payload.quantity)!==0)fail('행사 재고 수량은 운영자·부관리자가 배정합니다. 수량 0으로 등록해주세요.',403);
  const fingerprint=hash({userId,action:'registerEventArtistProduct',payload});
  const prior=(await sql`SELECT * FROM pos_event_access_commands WHERE id=${requestId}`).rows[0];
  if(prior){if(prior.actor_id!==userId||prior.project_id!==projectId||prior.fingerprint!==fingerprint)fail('같은 요청 ID의 내용이 다릅니다.');return prior.result;}
@@ -482,7 +493,7 @@ export async function saveEventArtistProduct(sql,userId,payload) {
  // latest: a change queued on the event device wins over edits made meanwhile in personal inventory.
  const current=payload.latest===true?item.version:version;
  if(item.version!==current)fail('상품이 변경되었습니다. 새로고침해주세요.');
- await eventAccess(sql,userId,ownerId,projectId,boothId);
+ await eventAccess(sql,userId,ownerId,projectId,boothId,{stockChange:false});
  if(!product||!integer(product.price))fail('행사 판매가를 확인해주세요.',400);
  if(product.creatorName!==item.product.creatorName)fail('제작자 매핑은 행사 관리에서 변경해주세요.',400);
  const subId=step=>{const key=hash({requestId:payload.requestId,step});return `${key.slice(0,8)}-${key.slice(8,12)}-${key.slice(12,16)}-${key.slice(16,20)}-${key.slice(20,32)}`;};
@@ -506,7 +517,7 @@ export async function setEventProductCreator(sql,userId,payload) {
  await authorizeEvent(sql,userId,projectId,'manage',boothId);
  const prior=await replay(sql,userId,'setEventProductCreator',payload);if(prior.result)return prior.result;
  if(item.version!==version)fail('상품이 변경되었습니다. 새로고침해주세요.');
- await eventAccess(sql,userId,ownerId,projectId,boothId);
+ await eventAccess(sql,userId,ownerId,projectId,boothId,{stockChange:false});
  const allocation=inventoryBalance(await sharedInventorySource(sql,item),item).allocations.find(row=>row.projectId===projectId);
  if(!allocation)fail('행사 배정 상품을 찾을 수 없습니다.',404);
  let creator;
@@ -549,10 +560,10 @@ export async function saveArtistStockPlan(sql,userId,payload){
  if(payload.currentProjectId){if(!validId(payload.currentProjectId)||!Array.isArray(allocations)||allocations.some(a=>a?.projectId!==payload.currentProjectId))fail('현재 행사 배정만 변경할 수 있습니다.',403);}
  if(!integer(totalStock)||!integer(version)||!Array.isArray(allocations)||allocations.length>200||allocations.some(a=>!a||!validId(a.projectId)||!integer(a.quantity))||new Set(allocations.map(a=>a.projectId)).size!==allocations.length)fail('총재고와 행사별 정수 수량을 확인해주세요.',400);
  let item=await itemFor(sql,ownerId,id);
- await lockScope(sql,userId,ownerId,boothId,item,[],false,false);
+ await lockScope(sql,userId,ownerId,boothId,item,payload.currentProjectId?[payload.currentProjectId]:[],false,false);
  if(payload.currentProjectId)await authorizeEvent(sql,userId,payload.currentProjectId,'read',boothId);
  const prior=await replay(sql,userId,'saveArtistStockPlan',payload);if(prior.result)return prior.result;
- if(payload.currentProjectId)await eventAccess(sql,userId,ownerId,payload.currentProjectId,boothId,{returning:true});
+ if(payload.currentProjectId)await eventAccess(sql,userId,ownerId,payload.currentProjectId,boothId,{returning:true,stockChange:false});
  item=await itemFor(sql,ownerId,id);if(item.version!==version)fail('재고가 변경되었습니다. 새로고침해주세요.');
  const balance=inventoryBalance(await sharedInventorySource(sql,item),item);
  const changes=allocations.map(a=>({...a,before:balance.allocations.find(b=>b.projectId===a.projectId)?.initial||0})).filter(a=>a.quantity!==a.before);
@@ -568,7 +579,7 @@ export async function saveArtistStockPlan(sql,userId,payload){
   const result=await setArtistAllocation(sql,userId,{ownerId,boothId,id,version:item.version,projectId:a.projectId,quantity:a.quantity,requestId});results.push(...result.changes);
  };
  for(const a of changes.filter(a=>a.quantity<a.before))await apply(a);
- if(totalStock!==balance.totalStock){item=await itemFor(sql,ownerId,id);const requestId=stepId('total');commandIds.push(requestId);await adjustArtistStock(sql,userId,{ownerId,boothId,id,version:item.version,totalStock,reason:totalStock>balance.totalStock?'receipt':'correction',requestId});}
+ if(totalStock!==balance.totalStock){item=await itemFor(sql,ownerId,id);const requestId=stepId('total');commandIds.push(requestId);await adjustArtistStock(sql,userId,{ownerId,boothId,id,version:item.version,totalStock,reason:totalStock>balance.totalStock?'receipt':'correction',requestId,...(payload.currentProjectId?{projectId:payload.currentProjectId}:{})});}
  for(const a of changes.filter(a=>a.quantity>a.before))await apply(a);
  return receipt(sql,userId,'saveArtistStockPlan',payload.currentProjectId?{...payload,projectId:payload.currentProjectId}:payload,prior.fingerprint,{inventory:await projection(sql,await itemFor(sql,ownerId,id),ownerId,boothId),commandIds,change:{before:balance.totalStock,after:totalStock,delta:totalStock-balance.totalStock,reason:'plan'},changes:results});
 }

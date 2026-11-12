@@ -125,7 +125,7 @@ export default function App() {
   const [bundles, setBundles] = useState([]);
   const [sales, setSales] = useState([]);
   const [cart, setCart] = useState([]);
-  useUnsavedChanges(cart.length > 0);
+  useUnsavedChanges(cart.length > 0, { navigation: false });
   const [bundleRows, setBundleRows] = useState([{ productId: '', qty: 1 }]);
   const [bundleName, setBundleName] = useState('');
   const [bundlePrice, setBundlePrice] = useState('');
