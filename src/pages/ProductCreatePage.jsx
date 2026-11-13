@@ -57,7 +57,9 @@ export default function ProductCreatePage({ projectId, onImageChange, readOnly, 
       .catch(error => { if (active) setStockLoad({ ownerId: draft.ownerId, items: [], error: error.message || '제작자 재고를 불러오지 못했습니다.' }); });
     return () => { active = false; };
   }, [draft.ownerId, canLoadStock]);
-  const creatorStock = stockLoad.ownerId === draft.ownerId ? stockLoad.items.filter(item => !item.pendingSync && !(item.allocations || []).some(row => row.projectId === projectId)) : [];
+  // A product removed from this event (inactive allocation) can be registered again; active ones are already listed.
+  const eventAllocation = item => (item?.allocations || []).find(row => row.projectId === projectId);
+  const creatorStock = stockLoad.ownerId === draft.ownerId ? stockLoad.items.filter(item => !item.pendingSync && (!eventAllocation(item) || eventAllocation(item).active === false)) : [];
   const stockItem = creatorStock.find(item => item.id === stockId);
   // Name·character·type·series of the picked stock item, editable before registering.
   const [stockInfo, setStockInfo] = useState(null);
@@ -67,7 +69,7 @@ export default function ProductCreatePage({ projectId, onImageChange, readOnly, 
     setStockId(id);
     setStockInfo(item ? infoOf(item) : null);
     setStockQty(String(item && !stockLocked ? Math.max(0, Number(item.warehouse) || 0) : 0));
-    setStockPrice(String(item?.price ?? 0));
+    setStockPrice(String(eventAllocation(item)?.price ?? item?.price ?? 0));
     setImageError('');
   };
   useEffect(() => {
@@ -102,7 +104,7 @@ export default function ProductCreatePage({ projectId, onImageChange, readOnly, 
         target = { ...stockItem, ...info, ...(result?.inventory || { version: stockItem.version + 1 }), id: stockItem.id };
         setStockLoad(current => ({ ...current, items: current.items.map(row => row.id === stockItem.id ? target : row) }));
       }
-      await onAllocateStock(target, { quantity, price });
+      await onAllocateStock(target, { quantity: quantity + (Number(eventAllocation(stockItem)?.initial) || 0), price });
       clearUnsaved();
       onBack();
     } catch (error) {

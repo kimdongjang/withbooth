@@ -668,6 +668,22 @@ test('ordinary event participants read the event and register products on event 
  }finally{await f.db.close();}
 });
 
+test('a product removed from the event is registered again from stock: same event product, reactivated with the added quantity',async()=>{
+ const f=await fixture();try{
+  const {boothId}=await f.migrate();
+  const made=await f.invoke('booths','registerEventArtistProduct',{projectId:f.event,boothId,artistName:'재등록 제작자',name:'재등록 상품',price:500,quantity:4,goodsType:'키링',requestId:crypto.randomUUID()});assert.equal(made.status,200,JSON.stringify(made.body));
+  let item=made.body.inventory;const ownerId=item.ownerId,productId=item.allocations[0].productId;
+  const returned=await f.invoke('booths','setArtistAllocation',{ownerId,boothId,id:item.id,version:item.version,projectId:f.event,quantity:0,requestId:crypto.randomUUID()});assert.equal(returned.status,200,JSON.stringify(returned.body));item=returned.body.inventory;
+  await f.sql`UPDATE pos_products SET is_active=FALSE WHERE project_id=${f.event} AND id=${productId}`;
+  const view=await f.invoke('booths',null,{},'a',{query:{artists:'stock',ownerId,boothId}});item=view.body.inventory[0];
+  assert.equal(item.allocations.find(a=>a.projectId===f.event).active,false);
+  const again=await f.invoke('booths','setArtistAllocation',{ownerId,boothId,id:item.id,version:item.version,projectId:f.event,quantity:3,price:700,requestId:crypto.randomUUID()});assert.equal(again.status,200,JSON.stringify(again.body));
+  const row=(await f.sql`SELECT is_active,stock_qty,price FROM pos_products WHERE project_id=${f.event} AND id=${productId}`).rows[0];
+  assert.deepEqual({active:row.is_active,stock:Number(row.stock_qty),price:Number(row.price)},{active:true,stock:3,price:700});
+  assert.equal(again.body.inventory.allocations.find(a=>a.projectId===f.event).active,true);assert.equal(again.body.inventory.warehouse,1);
+ }finally{await f.db.close();}
+});
+
 test('event assistants allocate, return and record loss of event stock without booth delegation',async()=>{
  const f=await fixture();try{
   const {boothId}=await f.migrate();
