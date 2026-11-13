@@ -1144,4 +1144,5 @@ public/robots.txt는 홈 및 렌더링 자산 크롤링을 허용하고 /api/, /
 - 부관리자는 부스 구성원이 아니어도 행사 범위 요청(`lockScope`에 projectId 전달)에서 행사 권한으로 재고를 변경한다. 행사 맥락 총재고 변경(`saveArtistStockPlan`의 `currentProjectId` → `adjustArtistStock`의 `projectId`)도 같다. 재고 조회의 `quantityEditable`, 행사의 `operator`·`canReturn`은 이 권한을 따르고 `artistEditable`은 항상 false다.
 - 참여 제작자의 행사 상품 등록(`registerEventArtistProduct`)은 수량 0만 허용한다. 등록 화면(`ProductCreatePage`의 `stockLocked`)은 수량 입력을 숨기고, 기존 재고 선택도 수량 0으로 연결한다(새 연결 0개는 등록으로 취급). 수량 배정은 운영자·부관리자가 한다.
 - 가격·상품 정보·제작자 매핑처럼 수량이 바뀌지 않는 행사 상품 수정은 기존 규칙(행사 기간 외 본인, 운영자)을 유지한다.
+- 새 상품 등록의 '상품 선택'은 이 행사에 배정이 없거나, 배정은 있지만 행사 상품이 제거된(`active:false`) 재고를 보여 준다. 제거된 상품을 고르면 같은 행사 상품을 `setArtistAllocation`으로 다시 활성화하며, 보내는 수량은 기존 배정(initial)에 새로 배정할 수량을 더한 값이다. 추가 수량 0의 재활성화는 등록으로 취급한다(`setAllocation`).
 

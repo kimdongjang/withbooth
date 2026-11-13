@@ -185,6 +185,19 @@ test('creator product picker lists zero-stock products and registers them with q
  assert.equal(JSON.stringify(allocated),JSON.stringify([['empty',{quantity:0,price:2000}]]));
 });
 
+test('creator product picker lists a product removed from this event and adds the new quantity to its previous allocation',async()=>{
+ const h=await harness('pages/ProductCreatePage.jsx');const allocated=[];
+ const loadCreatorStock=async()=>[{id:'removed',ownerId:'me',name:'제거된 상품',price:1000,warehouse:9,version:3,allocations:[{projectId:'event',active:false,initial:2,remaining:0,price:1500}]},{id:'selling',ownerId:'me',name:'판매 중',price:1000,warehouse:5,allocations:[{projectId:'event',active:true,initial:5}]}];
+ const props={projectId:'event',artists:[{ownerId:'me',label:'나',owned:true}],fixedCreator:{ownerId:'me',label:'나'},loadCreatorStock,products:[],onBack(){},registerProduct:async()=>{},onAllocateStock:async(item,values)=>allocated.push([item.id,values])};
+ h.render(props);await h.flush();h.render(props);await h.flush();let tree=h.render(props);
+ const select=tree.find(n=>n.props['aria-label']==='제작자 재고에서 상품 선택');
+ assert.deepEqual(nodes(select).filter(n=>n.type==='option').map(n=>n.props.value),['','removed']);
+ select.props.onChange({target:{value:'removed'}});tree=h.render(props);
+ tree.find(n=>n.type==='Input'&&n.props.max===9).props.onChange('3');tree=h.render(props);
+ await tree.find(n=>n.type==='form').props.onSubmit({preventDefault(){}});
+ assert.equal(JSON.stringify(allocated),JSON.stringify([['removed',{quantity:5,price:1500}]]));
+});
+
 test('participants without stock rights register products and pick stock with no quantity input and quantity 0',async()=>{
  const h=await harness('pages/ProductCreatePage.jsx');const allocated=[],registered=[];
  const loadCreatorStock=async()=>[{id:'key',ownerId:'me',name:'키링',price:3000,warehouse:5,version:1,allocations:[]}];

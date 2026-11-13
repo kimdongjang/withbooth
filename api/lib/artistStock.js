@@ -198,8 +198,9 @@ async function setAllocation(sql,userId,owner,item,projectId,quantity,boothId,pr
   const source=await sharedInventorySource(sql,item),balance=inventoryBalance(source,item);
   const previous=balance.allocations.find(a=>a.projectId===projectId);
   const delta=quantity-(previous?.initial||0);
-  // Linking stock to the event with no quantity registers the product without changing event stock.
-  const event=await eventAccess(sql,userId,owner.id,projectId,boothId,{returning:delta<0,registering:registering||!previous&&quantity===0,stockChange:delta!==0});
+  const inactive=previous&&source.products.find(p=>p.project_id===projectId&&p.id===previous.productId)?.is_active===false;
+  // Linking stock with no added quantity (new, or re-adding a removed event product) is a registration, not a stock change.
+  const event=await eventAccess(sql,userId,owner.id,projectId,boothId,{returning:delta<0,registering:registering||delta===0&&(!previous||inactive),stockChange:delta!==0});
   if(event.participation==='ending'&&price!=null&&previous&&price!==Number(source.products.find(p=>p.project_id===projectId&&p.id===previous.productId)?.price))fail('참여 종료 정리 중에는 행사 가격을 변경할 수 없습니다.');
   if(item.product.removedAt)fail('제거된 재고입니다.');
   if(item.stock<delta||previous&&previous.remaining+delta<0)fail('미배정 재고 또는 행사 잔량이 부족합니다.',400);
